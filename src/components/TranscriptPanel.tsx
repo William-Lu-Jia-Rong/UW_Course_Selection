@@ -1,0 +1,147 @@
+import { useState } from "react";
+import { LEVELS, formatCode, normalizeCode } from "../lib/codes";
+import type { Catalog, CourseStatus, Transcript } from "../lib/types";
+import { UploadZone } from "./UploadZone";
+import { Button, Card, Toggle, cx } from "./ui";
+
+const STATUS_STYLE: Record<CourseStatus, string> = {
+  completed: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  inProgress: "bg-sky-50 text-sky-800 ring-sky-200",
+  failed: "bg-rose-50 text-rose-700 ring-rose-200 line-through",
+  other: "bg-stone-50 text-stone-600 ring-stone-200",
+};
+
+export interface Settings {
+  includeInProgress: boolean;
+  levelOverride?: string;
+}
+
+interface Props {
+  catalog: Catalog;
+  transcript: Transcript;
+  setTranscript: (t: Transcript | null) => void;
+  settings: Settings;
+  setSettings: (s: Settings) => void;
+  suggestedLevel: string;
+}
+
+export function TranscriptPanel({ catalog, transcript, setTranscript, settings, setSettings, suggestedLevel }: Props) {
+  const [code, setCode] = useState("");
+  const [status, setStatus] = useState<CourseStatus>("completed");
+  const [error, setError] = useState<string>();
+
+  const byTerm = new Map<string, Transcript["courses"]>();
+  for (const c of transcript.courses) byTerm.set(c.term, [...(byTerm.get(c.term) ?? []), c]);
+
+  const addCourse = () => {
+    const norm = normalizeCode(code);
+    if (!norm) return;
+    if (!catalog.courses[norm]) {
+      setError(`日历里没有 ${formatCode(norm)}`);
+      return;
+    }
+    setError(undefined);
+    setTranscript({
+      ...transcript,
+      courses: [...transcript.courses, { code: norm, title: catalog.courses[norm].title, term: "手动添加", status, manual: true }],
+    });
+    setCode("");
+  };
+
+  const removeAt = (idx: number) => setTranscript({ ...transcript, courses: transcript.courses.filter((_, i) => i !== idx) });
+  const level = settings.levelOverride ?? suggestedLevel;
+
+  return (
+    <Card
+      title="我的成绩单"
+      actions={
+        <Button variant="ghost" onClick={() => confirm("清除已导入的成绩单？") && setTranscript(null)}>
+          清除
+        </Button>
+      }
+    >
+      <div className="space-y-4">
+        <div className="text-sm">
+          <div className="font-medium text-stone-900">{transcript.name ?? "（未识别姓名）"}</div>
+          <div className="text-stone-500">{transcript.program ?? "Computer Engineering"}</div>
+          {transcript.cumulativeAvg !== undefined && <div className="text-stone-500">累计均分 {transcript.cumulativeAvg.toFixed(2)}</div>}
+        </div>
+
+        <div className="space-y-3 rounded-lg bg-stone-50 p-3">
+          <label className="flex items-center justify-between gap-2 text-sm text-stone-700">
+            <span>要选课的学期年级</span>
+            <select
+              value={level}
+              onChange={(e) => setSettings({ ...settings, levelOverride: e.target.value === suggestedLevel ? undefined : e.target.value })}
+              className="rounded-md border border-stone-200 bg-white px-2 py-1 text-sm"
+            >
+              {LEVELS.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                  {l === suggestedLevel ? "（自动）" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Toggle
+            checked={settings.includeInProgress}
+            onChange={(v) => setSettings({ ...settings, includeInProgress: v })}
+            label="把正在修的课当作已完成"
+          />
+        </div>
+
+        <div className="space-y-3">
+          {[...byTerm].map(([term, courses]) => (
+            <div key={term}>
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-stone-400">{term}</div>
+              <div className="flex flex-wrap gap-1">
+                {courses.map((c) => {
+                  const idx = transcript.courses.indexOf(c);
+                  return (
+                    <span
+                      key={idx}
+                      title={`${c.title}${c.grade ? ` · ${c.grade}` : ""}`}
+                      className={cx("group inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs ring-1 ring-inset", STATUS_STYLE[c.status])}
+                    >
+                      <span className="font-mono">{formatCode(c.code)}</span>
+                      {c.grade && <span className="opacity-60">{c.grade}</span>}
+                      <button type="button" onClick={() => removeAt(idx)} className="hidden text-stone-400 hover:text-rose-600 group-hover:inline" aria-label="移除">
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <div className="flex gap-3 text-[11px] text-stone-500">
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-sm bg-emerald-300" />已完成</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-sm bg-sky-300" />在修</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-sm bg-rose-300" />未通过</span>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="text-xs font-medium text-stone-500">手动补充课程（转学分、成绩单没显示的等）</div>
+          <div className="flex gap-1.5">
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addCourse()}
+              placeholder="例如 CHE 102"
+              className="min-w-0 flex-1 rounded-md border border-stone-200 px-2 py-1 text-sm outline-none focus:border-stone-400"
+            />
+            <select value={status} onChange={(e) => setStatus(e.target.value as CourseStatus)} className="rounded-md border border-stone-200 px-1 text-sm">
+              <option value="completed">已完成</option>
+              <option value="inProgress">在修</option>
+            </select>
+            <Button onClick={addCourse}>添加</Button>
+          </div>
+          {error && <p className="text-xs text-rose-600">{error}</p>}
+        </div>
+
+        <UploadZone compact onParsed={setTranscript} />
+      </div>
+    </Card>
+  );
+}
