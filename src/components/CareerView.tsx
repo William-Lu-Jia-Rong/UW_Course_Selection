@@ -7,7 +7,7 @@ import { recommend, type Candidate, type Suggestion } from "../lib/recommend";
 import { CATEGORY_LABEL, type Categorizer, type DegreeProgress } from "../lib/requirements";
 import type { Catalog, Offering } from "../lib/types";
 import { FlowRating } from "./FlowRating";
-import { useOpenChain } from "./PrereqChain";
+import { useOpenChain, useRetrace } from "./PrereqChain";
 import { AVAILABILITY, Badge, Button, Card, cx } from "./ui";
 
 const MAX_CAREERS = 3;
@@ -29,8 +29,10 @@ interface Props {
 function CourseCell({ c, catalog, plan, onTogglePlan, showWhy = true }: { c: Candidate; catalog: Catalog; plan: string[]; onTogglePlan: (code: string) => void; showWhy?: boolean }) {
   const t = useT();
   const openChain = useOpenChain();
+  const retrace = useRetrace();
   const meta = AVAILABILITY[c.availability];
   const planned = plan.includes(c.code);
+  const start = c.availability === "locked" ? retrace(c.code)[0]?.chain[0] : undefined;
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <button type="button" onClick={() => openChain(c.code)} className="font-mono text-sm font-semibold text-sky-800 hover:underline" title={t("View course chain", "查看课程链")}>
@@ -41,6 +43,16 @@ function CourseCell({ c, catalog, plan, onTogglePlan, showWhy = true }: { c: Can
         {t(meta.label)}
       </Badge>
       {!c.offered && <Badge tone="stone">{t("Not offered next term", "下学期没开")}</Badge>}
+      {start && (
+        <button
+          type="button"
+          onClick={() => openChain(c.code)}
+          className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-900 ring-1 ring-inset ring-amber-200 hover:bg-amber-100"
+          title={t("Open the chain retraced to the first required course", "打开课程链，追溯到最上面一门必修")}
+        >
+          {t(`Start with ${formatCode(start)}`, `从 ${formatCode(start)} 起`)}
+        </button>
+      )}
       {showWhy && c.why.map((w) => (
         <Badge key={w.en} tone="violet">
           {t(w)}
@@ -221,8 +233,8 @@ export function CareerView(p: Props) {
         <Card title={t("Core courses to take later in these directions", "这个方向以后要修的核心课")}>
           <p className="mb-3 text-xs text-stone-500">
             {t(
-              'Not offered next term or not takeable yet. Click "Chain" to see which prerequisites are missing so you can plan ahead.',
-              "下学期没开或者现在还不能选。点「课程链」看还差哪些先修，可以提前规划。",
+              'Not offered next term or not takeable yet. "Start with …" retraces to the top required course; open Chain to see the full path.',
+              "下学期没开或者现在还不能选。「从 … 起」会追溯到必修链最上面一门课；点「课程链」看完整路径。",
             )}
           </p>
           <ul className="-mx-4 border-t border-stone-100">

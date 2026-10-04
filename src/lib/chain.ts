@@ -1,4 +1,4 @@
-import { equivalents, type EvalResult, type Tri } from "./evaluate";
+import { equivalents, type Availability, type CourseEval, type EvalResult, type Tri } from "./evaluate";
 import type { Text } from "./i18n";
 import type { Catalog, Course, ReqNode } from "./types";
 
@@ -111,6 +111,117 @@ export function upstreamTree(catalog: Catalog, code: string): { roots: UpNode[];
     queue.push(...courseNodes(n.kids));
   }
   return { roots, courses };
+}
+
+/** One path from the earliest unmet required course up toward a locked target. */
+export interface RetracePath {
+  /** Foundation → … → immediate unmet required prereq (excludes the target course). */
+  chain: string[];
+}
+
+const AVAIL_RANK: Record<Availability, number> = {
+  eligible: 0,
+  needsCoreq: 1,
+  check: 2,
+  locked: 3,
+  taken: 4,
+  restricted: 5,
+  antireq: 6,
+};
+
+function courseCodesInReq(r: Req): string[] {
+  if (r.k === "course") return r.coreq ? [] : [r.code];
+  if (r.k === "group") return r.kids.flatMap(courseCodesInReq);
+  return [];
+}
+
+/** Prefer courses the student can take soon, then program-local ones, then anything else open. */
+function pickRequiredOption(codes: string[], evalOf: (code: string) => CourseEval | undefined, prefer?: (code: string) => boolean): string | undefined {
+  const open = codes.filter((c) => {
+    const a = evalOf(c)?.availability;
+    return a !== undefined && a !== "taken" && a !== "antireq" && a !== "restricted";
+  });
+  const pool = open.length ? open : codes.filter((c) => evalOf(c)?.availability !== "taken");
+  return [...pool].sort((a, b) => {
+    const sa = AVAIL_RANK[evalOf(a)?.availability ?? "locked"];
+    const sb = AVAIL_RANK[evalOf(b)?.availability ?? "locked"];
+    if (sa !== sb) return sa - sb;
+    const pa = prefer?.(a) ? 0 : 1;
+    const pb = prefer?.(b) ? 0 : 1;
+    if (pa !== pb) return pa - pb;
+    return a.localeCompare(b, "en", { numeric: true });
+  })[0];
+}
+
+/** Unmet non-coreq course prerequisites still blocking this course, one representative per option group. */
+function nextRequiredCourses(reqs: Req[], evalOf: (code: string) => CourseEval | undefined, prefer?: (code: string) => boolean): string[] {
+  const out: string[] = [];
+  for (const r of reqs) {
+    if (r.s === "ok" || r.coreq) continue;
+    if (r.k === "course") {
+      if (evalOf(r.code)?.availability !== "taken") out.push(r.code);
+      continue;
+    }
+    if (r.k === "cond") continue;
+    if (r.n === "all") {
+      out.push(...nextRequiredCourses(r.kids, evalOf, prefer));
+      continue;
+    }
+    const options = courseCodesInReq(r);
+    if (!options.length) {
+      out.push(...nextRequiredCourses(r.kids.filter((k) => k.s !== "ok"), evalOf, prefer));
+      continue;
+    }
+    const pick = pickRequiredOption(options, evalOf, prefer);
+    if (pick) out.push(pick);
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * For a course the student can't take yet, walk unmet required prerequisites back to the
+ * most foundational course(s) they still need — the top of each required chain.
+ * Option groups (`n of k`) collapse to one preferred path. Pure level/program blockers yield [].
+ */
+export function retraceRequired(
+  catalog: Catalog,
+  code: string,
+  evalOf: (code: string) => CourseEval | undefined,
+  prefer?: (code: string) => boolean,
+): RetracePath[] {
+  const root = code;
+  const walk = (current: string, trail: string[]): RetracePath[] => {
+    if (trail.includes(current)) return [];
+    const course = catalog.courses[current];
+    const ev = evalOf(current);
+    if (!course || ev?.availability === "taken") return [];
+
+    const next = nextRequiredCourses(requirements(course, ev), evalOf, prefer);
+    if (!next.length) return current === root ? [] : [{ chain: [current] }];
+
+    const paths: RetracePath[] = [];
+    for (const pre of next) {
+      const sub = walk(pre, [...trail, current]);
+      if (!sub.length) {
+        if (pre !== root) paths.push({ chain: current === root ? [pre] : [pre, current] });
+        continue;
+      }
+      for (const p of sub) {
+        paths.push({ chain: current === root ? p.chain : [...p.chain, current] });
+      }
+    }
+    return paths;
+  };
+
+  const paths = walk(root, []);
+  const best = new Map<string, RetracePath>();
+  for (const p of paths) {
+    const start = p.chain[0];
+    if (!start) continue;
+    const prev = best.get(start);
+    if (!prev || p.chain.length > prev.chain.length) best.set(start, p);
+  }
+  return [...best.values()].sort((a, b) => b.chain.length - a.chain.length || a.chain[0].localeCompare(b.chain[0], "en", { numeric: true }));
 }
 
 export const STRENGTH: Record<Link, number> = { required: 3, coreq: 2, option: 1 };
