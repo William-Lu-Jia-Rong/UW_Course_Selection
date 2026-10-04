@@ -5,8 +5,9 @@ import { ChainProvider } from "./components/PrereqChain";
 import { NextTermView, type OfferingMode } from "./components/NextTermView";
 import { PlanPanel } from "./components/PlanPanel";
 import { ProgressView } from "./components/ProgressView";
+import type { ProgramOption } from "./components/StartScreen";
+import { StartScreen } from "./components/StartScreen";
 import { TranscriptPanel, type Settings } from "./components/TranscriptPanel";
-import { UploadZone } from "./components/UploadZone";
 import { LangSwitch, cx } from "./components/ui";
 import { extractCodes } from "./lib/codes";
 import { applyOfferingIssue, buildContext, evaluateCourse } from "./lib/evaluate";
@@ -14,10 +15,13 @@ import { DEFAULT_LANG, LangProvider, locale, translator, type Lang } from "./lib
 import { isCancelled, offeringIssue } from "./lib/offerings";
 import { buildCategorizer, computeProgress } from "./lib/requirements";
 import { usePersistentState } from "./lib/storage";
-import { suggestedTargetLevel } from "./lib/transcript";
+import { emptyTranscript, suggestedTargetLevel } from "./lib/transcript";
 import type { Catalog, Offering, Schedule, Transcript } from "./lib/types";
 
-const PROGRAMS = ["H-Computer Engineering"];
+const PROGRAMS: ProgramOption[] = [
+  { id: "H-Computer Engineering", label: { en: "Computer Engineering", zh: "计算机工程" } },
+];
+const DEFAULT_PROGRAM = PROGRAMS[0].id;
 type Tab = "next" | "career" | "eligible" | "progress";
 
 export default function App() {
@@ -26,7 +30,10 @@ export default function App() {
   const [catalog, setCatalog] = useState<Catalog>();
   const [loadError, setLoadError] = useState<string>();
   const [transcript, setTranscript] = usePersistentState<Transcript | null>("transcript", null);
-  const [settings, setSettings] = usePersistentState<Settings>("settings", { includeInProgress: true });
+  const [settings, setSettings] = usePersistentState<Settings>("settings", {
+    includeInProgress: true,
+    program: DEFAULT_PROGRAM,
+  });
   const [plan, setPlan] = usePersistentState<string[]>("plan", []);
   const [mode, setMode] = usePersistentState<OfferingMode>("offeringMode", "official");
   const [customText, setCustomText] = usePersistentState("customOfferings", "");
@@ -53,8 +60,11 @@ export default function App() {
 
   const schedule = liveSchedule && (!snapshot || liveSchedule.fetchedAt > snapshot.fetchedAt) ? liveSchedule : snapshot;
   const cz = useMemo(() => catalog && buildCategorizer(catalog), [catalog]);
-  const suggestedLevel = transcript ? suggestedTargetLevel(transcript) : "1A";
+  const browseOnly = !!settings.browseOnly;
+  const suggestedLevel = transcript && !browseOnly ? suggestedTargetLevel(transcript) : "1A";
   const level = settings.levelOverride ?? suggestedLevel;
+  const program = settings.program ?? DEFAULT_PROGRAM;
+  const programs = [program];
 
   const offered = useMemo(() => {
     const map = new Map<string, Offering[]>();
@@ -70,8 +80,8 @@ export default function App() {
   }, [catalog, mode, schedule, customText, t]);
 
   const ctx = useMemo(
-    () => catalog && transcript && buildContext(catalog, transcript, { includeInProgress: settings.includeInProgress, level, programs: PROGRAMS, concurrent: plan }),
-    [catalog, transcript, settings.includeInProgress, level, plan],
+    () => catalog && transcript && buildContext(catalog, transcript, { includeInProgress: settings.includeInProgress, level, programs, concurrent: plan }),
+    [catalog, transcript, settings.includeInProgress, level, program, plan],
   );
 
   const evals = useMemo(() => {
@@ -88,6 +98,25 @@ export default function App() {
   const progress = useMemo(() => catalog && cz && transcript && computeProgress(catalog, transcript, cz), [catalog, cz, transcript]);
   const togglePlan = (code: string) => setPlan((p) => (p.includes(code) ? p.filter((c) => c !== code) : [...p, code]));
   const addToPlan = (codes: string[]) => setPlan((p) => [...p, ...codes.filter((c) => !p.includes(c))]);
+
+  const startWithTranscript = (parsed: Transcript) => {
+    setTranscript(parsed);
+    setSettings({
+      ...settings,
+      levelOverride: undefined,
+      program: settings.program ?? DEFAULT_PROGRAM,
+      browseOnly: false,
+    });
+    setTab("next");
+  };
+
+  const startBrowse = ({ program: prog, level: lvl }: { program: string; level: string }) => {
+    const label = PROGRAMS.find((p) => p.id === prog)?.label;
+    setTranscript(emptyTranscript(label ? (lang === "zh" ? label.zh : label.en) : prog));
+    setSettings({ ...settings, includeInProgress: true, levelOverride: lvl, program: prog, browseOnly: true });
+    setPlan([]);
+    setTab("eligible");
+  };
 
   const status = (body: string, className: string) => (
     <div className="flex items-start justify-between gap-3 p-10">
@@ -127,23 +156,13 @@ export default function App() {
       </header>
 
       {!transcript ? (
-        <main className="mx-auto max-w-2xl px-5 py-16">
-          <h2 className="text-2xl font-semibold tracking-tight">{t("Start by uploading your transcript", "先上传你的成绩单")}</h2>
-          <p className="mt-2 text-stone-600">
-            {t(
-              "We detect the courses you've taken and are taking, check them against the Computer Engineering degree requirements and every course's prerequisites, and work out what you can take next term.",
-              "自动识别你修过和正在修的课，对照 Computer Engineering 的毕业要求和每门课的先修条件，算出你下学期能选哪些课。",
-            )}
-          </p>
-          <div className="mt-8">
-            <UploadZone
-              onParsed={(t) => {
-                setTranscript(t);
-                setSettings({ ...settings, levelOverride: undefined });
-              }}
-            />
-          </div>
-        </main>
+        <StartScreen
+          programs={PROGRAMS}
+          defaultProgram={program}
+          defaultLevel={level}
+          onBrowse={startBrowse}
+          onTranscript={startWithTranscript}
+        />
       ) : (
         <main className="mx-auto grid max-w-7xl gap-5 px-5 py-6 lg:grid-cols-[320px_1fr]">
           <aside className="space-y-5 lg:sticky lg:top-6 lg:self-start">
@@ -154,11 +173,21 @@ export default function App() {
               settings={settings}
               setSettings={setSettings}
               suggestedLevel={suggestedLevel}
+              programs={PROGRAMS}
+              browseOnly={browseOnly}
             />
             <PlanPanel plan={plan} evals={evalMap} offered={offered} onRemove={togglePlan} onClear={() => setPlan([])} />
           </aside>
 
           <div className="min-w-0 space-y-5">
+            {browseOnly && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {t(
+                  `Browsing as ${PROGRAMS.find((p) => p.id === program)?.label.en ?? program} · level ${level}. Only level/program rules are checked — upload a transcript for prerequisite-aware results.`,
+                  `当前按「${PROGRAMS.find((p) => p.id === program)?.label.zh ?? program} · ${level}」浏览。仅校验专业和年级；上传成绩单后才会按先修课判断。`,
+                )}
+              </div>
+            )}
             <nav className="flex gap-1 rounded-xl border border-stone-200 bg-white p-1">
               {(
                 [
