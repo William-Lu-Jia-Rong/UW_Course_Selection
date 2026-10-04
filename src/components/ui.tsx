@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Availability } from "../lib/evaluate";
+import { LANGS, type Lang, type Text } from "../lib/i18n";
 
 export function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
@@ -39,14 +40,45 @@ const TONES: Record<Tone, string> = {
   teal: "bg-teal-50 text-teal-700 ring-teal-200",
 };
 
-export const AVAILABILITY: Record<Availability, { label: string; tone: Tone; hint: string }> = {
-  eligible: { label: "可选", tone: "green", hint: "先修/反修条件都满足" },
-  needsCoreq: { label: "需同修", tone: "teal", hint: "先修满足，但有同修课（corequisite）需要同一学期一起选" },
-  check: { label: "需确认", tone: "amber", hint: "有无法自动判断的条件（如语言能力、特殊许可、需要院系同意），请人工确认" },
-  restricted: { label: "限制开放", tone: "red", hint: "开课备注写明只对特定学生开放（如双学位、GBDA、建筑系等）" },
-  locked: { label: "未满足", tone: "stone", hint: "先修课或年级/专业条件不满足" },
-  antireq: { label: "反修冲突", tone: "red", hint: "你已修过（或计划修）它的反修课（antirequisite）" },
-  taken: { label: "已修", tone: "blue", hint: "已经修过或正在修" },
+export const AVAILABILITY: Record<Availability, { label: Text; tone: Tone; hint: Text }> = {
+  eligible: {
+    label: { en: "Eligible", zh: "可选" },
+    tone: "green",
+    hint: { en: "Prerequisites met and no antirequisite conflict", zh: "先修/反修条件都满足" },
+  },
+  needsCoreq: {
+    label: { en: "Needs coreq", zh: "需同修" },
+    tone: "teal",
+    hint: { en: "Prerequisites met, but a corequisite must be taken in the same term", zh: "先修满足，但有同修课（corequisite）需要同一学期一起选" },
+  },
+  check: {
+    label: { en: "Check", zh: "需确认" },
+    tone: "amber",
+    hint: {
+      en: "Some conditions can't be checked automatically (e.g. language skills, special permission, department consent); please confirm manually",
+      zh: "有无法自动判断的条件（如语言能力、特殊许可、需要院系同意），请人工确认",
+    },
+  },
+  restricted: {
+    label: { en: "Restricted", zh: "限制开放" },
+    tone: "red",
+    hint: { en: "Schedule notes limit enrolment to specific students (e.g. double degree, GBDA, Architecture)", zh: "开课备注写明只对特定学生开放（如双学位、GBDA、建筑系等）" },
+  },
+  locked: {
+    label: { en: "Not met", zh: "未满足" },
+    tone: "stone",
+    hint: { en: "Prerequisite courses or level/program conditions not met", zh: "先修课或年级/专业条件不满足" },
+  },
+  antireq: {
+    label: { en: "Antireq conflict", zh: "反修冲突" },
+    tone: "red",
+    hint: { en: "You've taken (or plan to take) one of its antirequisites", zh: "你已修过（或计划修）它的反修课（antirequisite）" },
+  },
+  taken: {
+    label: { en: "Taken", zh: "已修" },
+    tone: "blue",
+    hint: { en: "Already completed or in progress", zh: "已经修过或正在修" },
+  },
 };
 
 export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: ReactNode }) {
@@ -74,6 +106,26 @@ export function Chip({ active, onClick, children, count }: { active: boolean; on
       {children}
       {count !== undefined && <span className={cx("tabular-nums", active ? "text-stone-300" : "text-stone-400")}>{count}</span>}
     </button>
+  );
+}
+
+export function LangSwitch({ lang, onChange }: { lang: Lang; onChange: (l: Lang) => void }) {
+  return (
+    <div className="flex rounded-lg border border-stone-200 bg-stone-50 p-0.5 text-xs" role="radiogroup" aria-label="Language / 语言">
+      {LANGS.map((l) => (
+        <button
+          key={l.id}
+          type="button"
+          role="radio"
+          aria-checked={lang === l.id}
+          lang={l.id}
+          onClick={() => onChange(l.id)}
+          className={cx("rounded-md px-2.5 py-1 font-medium transition", lang === l.id ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800")}
+        >
+          {l.label}
+        </button>
+      ))}
+    </div>
   );
 }
 

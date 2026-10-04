@@ -1,22 +1,29 @@
 import { useState } from "react";
+import { useT } from "../lib/i18n";
 import { parseTranscriptLines } from "../lib/transcript";
 import type { Transcript } from "../lib/types";
 import { Button, cx } from "./ui";
 
 export function UploadZone({ onParsed, compact }: { onParsed: (t: Transcript) => void; compact?: boolean }) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [drag, setDrag] = useState(false);
   const [showPaste, setShowPaste] = useState(false);
   const [pasted, setPasted] = useState("");
 
-  const accept = (t: Transcript) => {
-    if (!t.courses.length) {
-      setError("没有识别到任何课程。请确认这是 Quest 导出的 Unofficial Transcript（SSR_TSRPT.pdf）。");
+  const accept = (transcript: Transcript) => {
+    if (!transcript.courses.length) {
+      setError(
+        t(
+          "No courses were detected. Make sure this is the Unofficial Transcript exported from Quest (SSR_TSRPT.pdf).",
+          "没有识别到任何课程。请确认这是 Quest 导出的 Unofficial Transcript（SSR_TSRPT.pdf）。",
+        ),
+      );
       return;
     }
     setError(undefined);
-    onParsed(t);
+    onParsed(transcript);
   };
 
   const handleFile = async (file: File) => {
@@ -27,7 +34,8 @@ export function UploadZone({ onParsed, compact }: { onParsed: (t: Transcript) =>
       const lines = await pdfToLines(await file.arrayBuffer());
       accept(parseTranscriptLines(lines));
     } catch (e) {
-      setError(`读取 PDF 失败：${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(t(`Failed to read the PDF: ${msg}`, `读取 PDF 失败：${msg}`));
     } finally {
       setBusy(false);
     }
@@ -54,14 +62,27 @@ export function UploadZone({ onParsed, compact }: { onParsed: (t: Transcript) =>
         )}
       >
         <input type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(e) => e.target.files?.[0] && void handleFile(e.target.files[0])} />
-        <span className={cx("font-medium text-stone-800", compact ? "text-sm" : "text-base")}>{busy ? "正在识别…" : compact ? "重新上传成绩单 PDF" : "拖入或点击上传成绩单 PDF"}</span>
-        {!compact && <span className="mt-1 text-sm text-stone-500">Quest → Academics → Unofficial Transcript 导出的 SSR_TSRPT.pdf，只在浏览器本地解析，不会上传。</span>}
+        <span className={cx("font-medium text-stone-800", compact ? "text-sm" : "text-base")}>
+          {busy
+            ? t("Reading…", "正在识别…")
+            : compact
+              ? t("Re-upload transcript PDF", "重新上传成绩单 PDF")
+              : t("Drop or click to upload your transcript PDF", "拖入或点击上传成绩单 PDF")}
+        </span>
+        {!compact && (
+          <span className="mt-1 text-sm text-stone-500">
+            {t(
+              "SSR_TSRPT.pdf exported from Quest → Academics → Unofficial Transcript. It's parsed locally in your browser and never uploaded.",
+              "Quest → Academics → Unofficial Transcript 导出的 SSR_TSRPT.pdf，只在浏览器本地解析，不会上传。",
+            )}
+          </span>
+        )}
       </label>
       {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
       {!compact && (
         <div className="text-center">
           <Button variant="ghost" onClick={() => setShowPaste((v) => !v)}>
-            {showPaste ? "收起" : "或者粘贴成绩单文本"}
+            {showPaste ? t("Hide", "收起") : t("Or paste transcript text", "或者粘贴成绩单文本")}
           </Button>
         </div>
       )}
@@ -75,7 +96,7 @@ export function UploadZone({ onParsed, compact }: { onParsed: (t: Transcript) =>
             className="w-full rounded-lg border border-stone-200 p-3 font-mono text-xs outline-none focus:border-stone-400"
           />
           <Button variant="primary" onClick={() => accept(parseTranscriptLines(pasted.split(/\r?\n/)))} disabled={!pasted.trim()}>
-            解析文本
+            {t("Parse text", "解析文本")}
           </Button>
         </div>
       )}

@@ -3,15 +3,16 @@ import type { Link } from "../lib/chain";
 import { formatCode } from "../lib/codes";
 import type { Availability } from "../lib/evaluate";
 import { ROW_H, type ChainGraph } from "../lib/graph";
+import { useT, type Text } from "../lib/i18n";
 import { AVAILABILITY, Badge, cx } from "./ui";
 
 const R = 25;
 const R_CENTER = 33;
 
-const EDGE: Record<Link, { color: string; dash?: string; width: number; label: string }> = {
-  required: { color: "#57534e", width: 1.75, label: "必须先修" },
-  option: { color: "#a8a29e", dash: "6 5", width: 1.5, label: "几选一" },
-  coreq: { color: "#0d9488", dash: "1.5 4.5", width: 2, label: "同修" },
+const EDGE: Record<Link, { color: string; dash?: string; width: number; label: Text }> = {
+  required: { color: "#57534e", width: 1.75, label: { en: "Required", zh: "必须先修" } },
+  option: { color: "#a8a29e", dash: "6 5", width: 1.5, label: { en: "One of several", zh: "几选一" } },
+  coreq: { color: "#0d9488", dash: "1.5 4.5", width: 2, label: { en: "Corequisite", zh: "同修" } },
 };
 
 type Look = { fill: string; stroke: string; text: string };
@@ -27,12 +28,12 @@ const NODE: Record<Availability | "none", Look> = {
 };
 const CENTER: Look = { fill: "#1c1917", stroke: "#facc15", text: "#ffffff" };
 
-const LEGEND_NODES: { look: Look; label: string }[] = [
-  { look: CENTER, label: "当前课" },
-  { look: NODE.taken, label: "已修" },
-  { look: NODE.eligible, label: "现在可选" },
-  { look: NODE.locked, label: "还不能选" },
-  { look: NODE.antireq, label: "反修冲突 / 限制" },
+const LEGEND_NODES: { look: Look; label: Text }[] = [
+  { look: CENTER, label: { en: "This course", zh: "当前课" } },
+  { look: NODE.taken, label: { en: "Taken", zh: "已修" } },
+  { look: NODE.eligible, label: { en: "Eligible now", zh: "现在可选" } },
+  { look: NODE.locked, label: { en: "Not yet", zh: "还不能选" } },
+  { look: NODE.antireq, label: { en: "Antireq / restricted", zh: "反修冲突 / 限制" } },
 ];
 
 const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
@@ -52,6 +53,7 @@ function curve(points: [number, number][], r0: number, r1: number): string {
 }
 
 export function GraphLegend() {
+  const t = useT();
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-stone-500">
       {(Object.keys(EDGE) as Link[]).map((l) => (
@@ -59,14 +61,14 @@ export function GraphLegend() {
           <svg width="26" height="8" aria-hidden>
             <line x1="1" y1="4" x2="25" y2="4" stroke={EDGE[l].color} strokeWidth={EDGE[l].width} strokeDasharray={EDGE[l].dash} strokeLinecap="round" />
           </svg>
-          {EDGE[l].label}
+          {t(EDGE[l].label)}
         </span>
       ))}
       <span className="h-3 w-px bg-stone-200" />
       {LEGEND_NODES.map(({ look, label }) => (
-        <span key={label} className="flex items-center gap-1.5">
+        <span key={label.en} className="flex items-center gap-1.5">
           <span className="h-3 w-3 rounded-full border-2" style={{ background: look.fill, borderColor: look.stroke }} />
-          {label}
+          {t(label)}
         </span>
       ))}
     </div>
@@ -83,6 +85,7 @@ interface Props {
 }
 
 export function ChainGraphView({ graph, center, statusOf, titleOf, detail, onPick }: Props) {
+  const t = useT();
   const scroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [hover, setHover] = useState<string>();
@@ -132,7 +135,7 @@ export function ChainGraphView({ graph, center, statusOf, titleOf, detail, onPic
               <g key={row}>
                 {row === 0 && <rect x={8} y={y - ROW_H / 2 + 10} width={graph.width - 16} height={ROW_H - 20} rx={18} fill="#fefce8" stroke="#fde68a" strokeDasharray="4 4" />}
                 <text x={18} y={y + 4} fontSize={11} fontWeight={600} fill={row === 0 ? "#a16207" : "#a8a29e"}>
-                  {row === 0 ? "当前" : row < 0 ? `前置 ${-row}` : `后续 ${row}`}
+                  {row === 0 ? t("Current", "当前") : row < 0 ? t(`Before ${-row}`, `前置 ${-row}`) : t(`After ${row}`, `后续 ${row}`)}
                 </text>
               </g>
             ))}
@@ -212,11 +215,11 @@ export function ChainGraphView({ graph, center, statusOf, titleOf, detail, onPic
               <div className="mt-2 flex flex-wrap gap-1">
                 {(() => {
                   const s = statusOf(hoverNode.id);
-                  return s && <Badge tone={AVAILABILITY[s].tone}>{AVAILABILITY[s].label}</Badge>;
+                  return s && <Badge tone={AVAILABILITY[s].tone}>{t(AVAILABILITY[s].label)}</Badge>;
                 })()}
                 {detail?.(hoverNode.id)}
               </div>
-              {hoverNode.id !== center && <div className="mt-2 text-[11px] text-stone-400">点击以这门课为中心</div>}
+              {hoverNode.id !== center && <div className="mt-2 text-[11px] text-stone-400">{t("Click to centre on this course", "点击以这门课为中心")}</div>}
             </div>
           )}
         </div>
@@ -224,10 +227,10 @@ export function ChainGraphView({ graph, center, statusOf, titleOf, detail, onPic
 
       <div className="absolute bottom-3 right-3 flex items-center overflow-hidden rounded-lg border border-stone-200 bg-white text-sm shadow-sm">
         {[
-          { label: "−", title: "缩小", act: () => setZoom((z) => Math.max(0.35, +(z - 0.15).toFixed(2))) },
-          { label: `${Math.round(zoom * 100)}%`, title: "恢复 100%", act: () => setZoom(1) },
-          { label: "+", title: "放大", act: () => setZoom((z) => Math.min(1.8, +(z + 0.15).toFixed(2))) },
-          { label: "适应", title: "缩放到能看到全部", act: fit },
+          { label: "−", title: t("Zoom out", "缩小"), act: () => setZoom((z) => Math.max(0.35, +(z - 0.15).toFixed(2))) },
+          { label: `${Math.round(zoom * 100)}%`, title: t("Reset to 100%", "恢复 100%"), act: () => setZoom(1) },
+          { label: "+", title: t("Zoom in", "放大"), act: () => setZoom((z) => Math.min(1.8, +(z + 0.15).toFixed(2))) },
+          { label: t("Fit", "适应"), title: t("Zoom to fit everything", "缩放到能看到全部"), act: fit },
         ].map((b, i) => (
           <button key={b.title} type="button" title={b.title} onClick={b.act} className={cx("px-2.5 py-1.5 text-stone-600 hover:bg-stone-100", i > 0 && "border-l border-stone-200", i === 1 && "w-14 text-xs tabular-nums")}>
             {b.label}

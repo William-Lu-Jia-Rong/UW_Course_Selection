@@ -1,6 +1,7 @@
 import { careerMatch, type Career } from "./careers";
 import { levelIndex } from "./codes";
 import type { Availability, CourseEval } from "./evaluate";
+import { same, type Text } from "./i18n";
 import type { Categorizer, Category, DegreeProgress } from "./requirements";
 import type { Catalog } from "./types";
 
@@ -9,19 +10,19 @@ export interface Candidate {
   availability: Availability;
   offered: boolean;
   score: number;
-  why: string[];
+  why: Text[];
 }
 
 export interface Suggestion {
   kind: "required" | "choose" | "elective";
   /** What the term-by-term plan asks for. */
-  slot: string;
+  slot: Text;
   /** The graduation requirement the pick counts towards. */
-  fills?: string;
+  fills?: Text;
   pick?: Candidate;
   alternatives: Candidate[];
-  problem?: string;
-  note?: string;
+  problem?: Text;
+  note?: Text;
 }
 
 export interface Recommendation {
@@ -47,7 +48,7 @@ function termSlotAccepts(label: string): Category[] {
 }
 
 interface DegreeSlot {
-  label: string;
+  label: Text;
   accepts: Category[];
   open: boolean;
   reserved?: boolean;
@@ -55,7 +56,9 @@ interface DegreeSlot {
 
 function degreeSlots(progress: DegreeProgress): DegreeSlot[] {
   const group = (prefix: string, slots: DegreeProgress["te"]) =>
-    slots.filter((s) => s.status === "missing").map((s) => ({ label: `${prefix}${s.label}`, accepts: s.accepts, open: true }));
+    slots
+      .filter((s) => s.status === "missing")
+      .map((s) => ({ label: { en: `${prefix}${s.label.en}`, zh: `${prefix}${s.label.zh}` }, accepts: s.accepts, open: true }));
   return [...group("TE ", progress.te), ...group("", progress.natsci), ...group("", progress.ethics), ...group("CSE ", progress.cse)];
 }
 
@@ -101,8 +104,12 @@ export function recommend({ catalog, cz, evals, offered, progress, level, career
         const c = candidate(code);
         if (c.availability === "taken") continue;
         used.add(code);
-        const problem = !c.offered ? "下学期开课列表里没有这门课" : !TAKEABLE.includes(c.availability) ? "按日历条件现在还不能选，请检查先修" : undefined;
-        suggestions.push({ kind: "required", slot: `${level} 必修`, pick: c, alternatives: [], problem });
+        const problem = !c.offered
+          ? { en: "Not on next term's offering list", zh: "下学期开课列表里没有这门课" }
+          : !TAKEABLE.includes(c.availability)
+            ? { en: "You can't take it yet under the calendar rules; check the prerequisites", zh: "按日历条件现在还不能选，请检查先修" }
+            : undefined;
+        suggestions.push({ kind: "required", slot: { en: `${level} required`, zh: `${level} 必修` }, pick: c, alternatives: [], problem });
       }
     } else if (item.kind === "choose") {
       const options = item.courses.map(candidate);
@@ -112,10 +119,10 @@ export function recommend({ catalog, cz, evals, offered, progress, level, career
       used.add(options[0].code);
       suggestions.push({
         kind: "choose",
-        slot: `${level} 必修（${item.n} 选 1）`,
+        slot: { en: `${level} required (1 of ${item.n})`, zh: `${level} 必修（${item.n} 选 1）` },
         pick: options[0],
         alternatives: options.slice(1),
-        problem: ready(options[0]) ? undefined : "这几门下学期都没开或现在还不能选",
+        problem: ready(options[0]) ? undefined : { en: "None of these is offered next term or takeable yet", zh: "这几门下学期都没开或现在还不能选" },
       });
     }
   }
@@ -150,7 +157,12 @@ export function recommend({ catalog, cz, evals, offered, progress, level, career
     const valid = pool.filter((c) => !used.has(c.code) && slotFor(slots, cats(c.code), ts.accepts, restrictive));
     const pick = valid[0];
     if (!pick) {
-      suggestions.push({ kind: "elective", slot: ts.label, alternatives: [], problem: "下学期开的课里没有能填这个名额、你又能选的课" });
+      suggestions.push({
+        kind: "elective",
+        slot: same(ts.label),
+        alternatives: [],
+        problem: { en: "Nothing offered next term both fits this slot and is takeable for you", zh: "下学期开的课里没有能填这个名额、你又能选的课" },
+      });
       continue;
     }
     used.add(pick.code);
@@ -159,15 +171,21 @@ export function recommend({ catalog, cz, evals, offered, progress, level, career
     ds.open = false;
     let fills = ds.label;
     // An Ethics course also counts as a complementary studies elective.
-    if (ds.label.startsWith("Ethics")) {
+    if (ds.label.en.startsWith("Ethics")) {
       const cse = slotFor(slots, pickCats, ["cseA", "cseC", "cseD"], false);
       if (cse) {
         cse.open = false;
-        fills += ` + ${cse.label}`;
+        fills = { en: `${fills.en} + ${cse.label.en}`, zh: `${fills.zh} + ${cse.label.zh}` };
       }
     }
-    const note = careers.length && pick.score < WEAK_MATCH ? `这学期没有和所选方向直接相关、你又能选的课，先用这个名额完成 ${fills}` : undefined;
-    suggestions.push({ kind: "elective", slot: ts.label, fills, pick, alternatives: valid.slice(1, 1 + MAX_ALTERNATIVES), note });
+    const note =
+      careers.length && pick.score < WEAK_MATCH
+        ? {
+            en: `Nothing takeable this term matches your directions closely, so this slot goes towards ${fills.en}`,
+            zh: `这学期没有和所选方向直接相关、你又能选的课，先用这个名额完成 ${fills.zh}`,
+          }
+        : undefined;
+    suggestions.push({ kind: "elective", slot: same(ts.label), fills, pick, alternatives: valid.slice(1, 1 + MAX_ALTERNATIVES), note });
   }
 
   const coreCodes = new Set(careers.flatMap((c) => c.core));

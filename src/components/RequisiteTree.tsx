@@ -1,6 +1,7 @@
 import { formatCode } from "../lib/codes";
 import { courseRulePrefix, describeNode } from "../lib/describe";
 import type { EvalResult } from "../lib/evaluate";
+import { useLang, useT } from "../lib/i18n";
 import { cx } from "./ui";
 
 const ICON = {
@@ -11,6 +12,8 @@ const ICON = {
 
 /** For antirequisites "ok" means "no conflict", so the same icons apply. */
 export function RequisiteTree({ result }: { result: EvalResult }) {
+  const t = useT();
+  const lang = useLang();
   const icon = ICON[result.s];
   const node = result.node;
   return (
@@ -22,7 +25,7 @@ export function RequisiteTree({ result }: { result: EvalResult }) {
             node.text
           ) : node.t === "courses" || node.t === "notCourses" ? (
             <>
-              {courseRulePrefix(node)}{" "}
+              {courseRulePrefix(node, lang)}{" "}
               {node.courses.map((c, i) => (
                 <span key={c}>
                   {i > 0 && ", "}
@@ -33,9 +36,9 @@ export function RequisiteTree({ result }: { result: EvalResult }) {
               ))}
             </>
           ) : (
-            describeNode(node)
+            describeNode(node, lang)
           )}
-          {result.note && <span className="ml-1 text-stone-400">（{result.note}）</span>}
+          {result.note && <span className="ml-1 text-stone-400">{t(`(${result.note.en})`, `（${result.note.zh}）`)}</span>}
         </span>
       </div>
       {result.kids && (

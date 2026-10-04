@@ -7,9 +7,10 @@ import { PlanPanel } from "./components/PlanPanel";
 import { ProgressView } from "./components/ProgressView";
 import { TranscriptPanel, type Settings } from "./components/TranscriptPanel";
 import { UploadZone } from "./components/UploadZone";
-import { cx } from "./components/ui";
+import { LangSwitch, cx } from "./components/ui";
 import { extractCodes } from "./lib/codes";
 import { applyOfferingIssue, buildContext, evaluateCourse } from "./lib/evaluate";
+import { DEFAULT_LANG, LangProvider, locale, translator, type Lang } from "./lib/i18n";
 import { isCancelled, offeringIssue } from "./lib/offerings";
 import { buildCategorizer, computeProgress } from "./lib/requirements";
 import { usePersistentState } from "./lib/storage";
@@ -20,6 +21,8 @@ const PROGRAMS = ["H-Computer Engineering"];
 type Tab = "next" | "career" | "eligible" | "progress";
 
 export default function App() {
+  const [lang, setLang] = usePersistentState<Lang>("lang", DEFAULT_LANG);
+  const t = useMemo(() => translator(lang), [lang]);
   const [catalog, setCatalog] = useState<Catalog>();
   const [loadError, setLoadError] = useState<string>();
   const [transcript, setTranscript] = usePersistentState<Transcript | null>("transcript", null);
@@ -36,12 +39,17 @@ export default function App() {
     fetch("/data/catalog.json")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then(setCatalog)
-      .catch((e) => setLoadError(`加载 catalog.json 失败（先运行 npm run data）：${e.message}`));
+      .catch((e) => setLoadError(e.message));
     fetch("/data/schedule.json")
       .then((r) => (r.ok ? r.json() : null))
       .then(setSnapshot)
       .catch(() => setSnapshot(null));
   }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+    document.title = t("UW Course Planner · Computer Engineering", "UW 选课助手 · Computer Engineering");
+  }, [lang, t]);
 
   const schedule = liveSchedule && (!snapshot || liveSchedule.fetchedAt > snapshot.fetchedAt) ? liveSchedule : snapshot;
   const cz = useMemo(() => catalog && buildCategorizer(catalog), [catalog]);
@@ -55,11 +63,11 @@ export default function App() {
       for (const o of schedule?.offerings ?? []) if (!isCancelled(o)) map.set(o.code, [...(map.get(o.code) ?? []), o]);
     } else {
       for (const code of extractCodes(customText, (c) => !!catalog.courses[c])) {
-        map.set(code, [{ code, title: catalog.courses[code].title, campus: "自定义列表" }]);
+        map.set(code, [{ code, title: catalog.courses[code].title, campus: t("Custom list", "自定义列表") }]);
       }
     }
     return map;
-  }, [catalog, mode, schedule, customText]);
+  }, [catalog, mode, schedule, customText, t]);
 
   const ctx = useMemo(
     () => catalog && transcript && buildContext(catalog, transcript, { includeInProgress: settings.includeInProgress, level, programs: PROGRAMS, concurrent: plan }),
@@ -81,13 +89,20 @@ export default function App() {
   const togglePlan = (code: string) => setPlan((p) => (p.includes(code) ? p.filter((c) => c !== code) : [...p, code]));
   const addToPlan = (codes: string[]) => setPlan((p) => [...p, ...codes.filter((c) => !p.includes(c))]);
 
-  if (loadError) return <div className="p-10 text-rose-700">{loadError}</div>;
-  if (!catalog || !cz) return <div className="p-10 text-stone-500">正在加载课程日历数据…</div>;
+  const status = (body: string, className: string) => (
+    <div className="flex items-start justify-between gap-3 p-10">
+      <div className={className}>{body}</div>
+      <LangSwitch lang={lang} onChange={setLang} />
+    </div>
+  );
+  if (loadError) return status(t(`Failed to load catalog.json (run npm run data first): ${loadError}`, `加载 catalog.json 失败（先运行 npm run data）：${loadError}`), "text-rose-700");
+  if (!catalog || !cz) return status(t("Loading Academic Calendar data…", "正在加载课程日历数据…"), "text-stone-500");
 
   const eligibleCount = evals.filter((e) => e.availability === "eligible" || e.availability === "needsCoreq").length;
   const offeredEligible = evals.filter((e) => offered.has(e.course.code) && (e.availability === "eligible" || e.availability === "needsCoreq")).length;
 
   return (
+    <LangProvider value={lang}>
     <ChainProvider catalog={catalog} cz={cz} ctx={ctx || undefined}>
     <div className="min-h-screen bg-stone-100/70 text-stone-900">
       <header className="border-b border-stone-200 bg-white">
@@ -95,21 +110,30 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-stone-900 text-sm font-bold text-yellow-400">UW</div>
             <div>
-              <h1 className="text-base font-semibold leading-tight">选课助手</h1>
+              <h1 className="text-base font-semibold leading-tight">{t("Course Planner", "选课助手")}</h1>
               <p className="text-xs text-stone-500">{catalog.program.title}</p>
             </div>
           </div>
-          <p className="text-xs text-stone-400">
-            Academic Calendar 生效于 {catalog.program.catalogActivationDate} · 数据抓取 {new Date(catalog.meta.fetchedAt).toLocaleDateString("zh-CN")}
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-xs text-stone-400">
+              {t(
+                `Academic Calendar effective ${catalog.program.catalogActivationDate} · Data fetched ${new Date(catalog.meta.fetchedAt).toLocaleDateString(locale(lang))}`,
+                `Academic Calendar 生效于 ${catalog.program.catalogActivationDate} · 数据抓取 ${new Date(catalog.meta.fetchedAt).toLocaleDateString(locale(lang))}`,
+              )}
+            </p>
+            <LangSwitch lang={lang} onChange={setLang} />
+          </div>
         </div>
       </header>
 
       {!transcript ? (
         <main className="mx-auto max-w-2xl px-5 py-16">
-          <h2 className="text-2xl font-semibold tracking-tight">先上传你的成绩单</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">{t("Start by uploading your transcript", "先上传你的成绩单")}</h2>
           <p className="mt-2 text-stone-600">
-            自动识别你修过和正在修的课，对照 Computer Engineering 的毕业要求和每门课的先修条件，算出你下学期能选哪些课。
+            {t(
+              "We detect the courses you've taken and are taking, check them against the Computer Engineering degree requirements and every course's prerequisites, and work out what you can take next term.",
+              "自动识别你修过和正在修的课，对照 Computer Engineering 的毕业要求和每门课的先修条件，算出你下学期能选哪些课。",
+            )}
           </p>
           <div className="mt-8">
             <UploadZone
@@ -138,10 +162,10 @@ export default function App() {
             <nav className="flex gap-1 rounded-xl border border-stone-200 bg-white p-1">
               {(
                 [
-                  ["next", `下学期选课`, offeredEligible],
-                  ["career", "按方向推荐", undefined],
-                  ["eligible", "所有能选的课", eligibleCount],
-                  ["progress", "毕业进度", undefined],
+                  ["next", t("Next term", "下学期选课"), offeredEligible],
+                  ["career", t("By career", "按方向推荐"), undefined],
+                  ["eligible", t("All eligible", "所有能选的课"), eligibleCount],
+                  ["progress", t("Degree progress", "毕业进度"), undefined],
                 ] as const
               ).map(([key, label, n]) => (
                 <button
@@ -198,5 +222,6 @@ export default function App() {
       )}
     </div>
     </ChainProvider>
+    </LangProvider>
   );
 }

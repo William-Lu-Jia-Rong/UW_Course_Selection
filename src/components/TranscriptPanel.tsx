@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { LEVELS, formatCode, normalizeCode } from "../lib/codes";
+import { useT } from "../lib/i18n";
 import type { Catalog, CourseStatus, Transcript } from "../lib/types";
 import { UploadZone } from "./UploadZone";
 import { Button, Card, Toggle, cx } from "./ui";
@@ -10,6 +11,8 @@ const STATUS_STYLE: Record<CourseStatus, string> = {
   failed: "bg-rose-50 text-rose-700 ring-rose-200 line-through",
   other: "bg-stone-50 text-stone-600 ring-stone-200",
 };
+
+const MANUAL_TERM = "Manual";
 
 export interface Settings {
   includeInProgress: boolean;
@@ -26,24 +29,28 @@ interface Props {
 }
 
 export function TranscriptPanel({ catalog, transcript, setTranscript, settings, setSettings, suggestedLevel }: Props) {
+  const t = useT();
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<CourseStatus>("completed");
   const [error, setError] = useState<string>();
 
   const byTerm = new Map<string, Transcript["courses"]>();
-  for (const c of transcript.courses) byTerm.set(c.term, [...(byTerm.get(c.term) ?? []), c]);
+  for (const c of transcript.courses) {
+    const term = c.manual ? MANUAL_TERM : c.term;
+    byTerm.set(term, [...(byTerm.get(term) ?? []), c]);
+  }
 
   const addCourse = () => {
     const norm = normalizeCode(code);
     if (!norm) return;
     if (!catalog.courses[norm]) {
-      setError(`日历里没有 ${formatCode(norm)}`);
+      setError(t(`${formatCode(norm)} is not in the calendar`, `日历里没有 ${formatCode(norm)}`));
       return;
     }
     setError(undefined);
     setTranscript({
       ...transcript,
-      courses: [...transcript.courses, { code: norm, title: catalog.courses[norm].title, term: "手动添加", status, manual: true }],
+      courses: [...transcript.courses, { code: norm, title: catalog.courses[norm].title, term: MANUAL_TERM, status, manual: true }],
     });
     setCode("");
   };
@@ -53,23 +60,27 @@ export function TranscriptPanel({ catalog, transcript, setTranscript, settings, 
 
   return (
     <Card
-      title="我的成绩单"
+      title={t("My transcript", "我的成绩单")}
       actions={
-        <Button variant="ghost" onClick={() => confirm("清除已导入的成绩单？") && setTranscript(null)}>
-          清除
+        <Button variant="ghost" onClick={() => confirm(t("Clear the imported transcript?", "清除已导入的成绩单？")) && setTranscript(null)}>
+          {t("Clear", "清除")}
         </Button>
       }
     >
       <div className="space-y-4">
         <div className="text-sm">
-          <div className="font-medium text-stone-900">{transcript.name ?? "（未识别姓名）"}</div>
+          <div className="font-medium text-stone-900">{transcript.name ?? t("(name not detected)", "（未识别姓名）")}</div>
           <div className="text-stone-500">{transcript.program ?? "Computer Engineering"}</div>
-          {transcript.cumulativeAvg !== undefined && <div className="text-stone-500">累计均分 {transcript.cumulativeAvg.toFixed(2)}</div>}
+          {transcript.cumulativeAvg !== undefined && (
+            <div className="text-stone-500">
+              {t("Cumulative average", "累计均分")} {transcript.cumulativeAvg.toFixed(2)}
+            </div>
+          )}
         </div>
 
         <div className="space-y-3 rounded-lg bg-stone-50 p-3">
           <label className="flex items-center justify-between gap-2 text-sm text-stone-700">
-            <span>要选课的学期年级</span>
+            <span>{t("Level for the term you're planning", "要选课的学期年级")}</span>
             <select
               value={level}
               onChange={(e) => setSettings({ ...settings, levelOverride: e.target.value === suggestedLevel ? undefined : e.target.value })}
@@ -78,7 +89,7 @@ export function TranscriptPanel({ catalog, transcript, setTranscript, settings, 
               {LEVELS.map((l) => (
                 <option key={l} value={l}>
                   {l}
-                  {l === suggestedLevel ? "（自动）" : ""}
+                  {l === suggestedLevel ? t(" (auto)", "（自动）") : ""}
                 </option>
               ))}
             </select>
@@ -86,14 +97,14 @@ export function TranscriptPanel({ catalog, transcript, setTranscript, settings, 
           <Toggle
             checked={settings.includeInProgress}
             onChange={(v) => setSettings({ ...settings, includeInProgress: v })}
-            label="把正在修的课当作已完成"
+            label={t("Count in-progress courses as completed", "把正在修的课当作已完成")}
           />
         </div>
 
         <div className="space-y-3">
           {[...byTerm].map(([term, courses]) => (
             <div key={term}>
-              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-stone-400">{term}</div>
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-stone-400">{term === MANUAL_TERM ? t("Added manually", "手动添加") : term}</div>
               <div className="flex flex-wrap gap-1">
                 {courses.map((c) => {
                   const idx = transcript.courses.indexOf(c);
@@ -105,7 +116,7 @@ export function TranscriptPanel({ catalog, transcript, setTranscript, settings, 
                     >
                       <span className="font-mono">{formatCode(c.code)}</span>
                       {c.grade && <span className="opacity-60">{c.grade}</span>}
-                      <button type="button" onClick={() => removeAt(idx)} className="hidden text-stone-400 hover:text-rose-600 group-hover:inline" aria-label="移除">
+                      <button type="button" onClick={() => removeAt(idx)} className="hidden text-stone-400 hover:text-rose-600 group-hover:inline" aria-label={t("Remove", "移除")}>
                         ×
                       </button>
                     </span>
@@ -115,27 +126,27 @@ export function TranscriptPanel({ catalog, transcript, setTranscript, settings, 
             </div>
           ))}
           <div className="flex gap-3 text-[11px] text-stone-500">
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-sm bg-emerald-300" />已完成</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-sm bg-sky-300" />在修</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-sm bg-rose-300" />未通过</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-sm bg-emerald-300" />{t("Completed", "已完成")}</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-sm bg-sky-300" />{t("In progress", "在修")}</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-sm bg-rose-300" />{t("Failed", "未通过")}</span>
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <div className="text-xs font-medium text-stone-500">手动补充课程（转学分、成绩单没显示的等）</div>
+          <div className="text-xs font-medium text-stone-500">{t("Add courses manually (transfer credits, courses missing from the transcript, etc.)", "手动补充课程（转学分、成绩单没显示的等）")}</div>
           <div className="flex gap-1.5">
             <input
               value={code}
               onChange={(e) => setCode(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addCourse()}
-              placeholder="例如 CHE 102"
+              placeholder={t("e.g. CHE 102", "例如 CHE 102")}
               className="min-w-0 flex-1 rounded-md border border-stone-200 px-2 py-1 text-sm outline-none focus:border-stone-400"
             />
             <select value={status} onChange={(e) => setStatus(e.target.value as CourseStatus)} className="rounded-md border border-stone-200 px-1 text-sm">
-              <option value="completed">已完成</option>
-              <option value="inProgress">在修</option>
+              <option value="completed">{t("Completed", "已完成")}</option>
+              <option value="inProgress">{t("In progress", "在修")}</option>
             </select>
-            <Button onClick={addCourse}>添加</Button>
+            <Button onClick={addCourse}>{t("Add", "添加")}</Button>
           </div>
           {error && <p className="text-xs text-rose-600">{error}</p>}
         </div>

@@ -1,12 +1,12 @@
-import { describeNode } from "./describe";
 import { equivalents, type EvalResult, type Tri } from "./evaluate";
+import type { Text } from "./i18n";
 import type { Catalog, Course, ReqNode } from "./types";
 
 /** A requirement annotated with whether the student meets it (`s` is undefined without a transcript). */
 export type Req =
   | { k: "course"; code: string; s?: Tri; coreq: boolean; conc?: boolean; minGrade?: number }
   | { k: "group"; n: number | "all"; s?: Tri; coreq: boolean; kids: Req[] }
-  | { k: "cond"; text: string; s?: Tri; coreq: boolean; note?: string };
+  | { k: "cond"; node: ReqNode; s?: Tri; coreq: boolean; note?: Text };
 
 function reqGroup(n: number | "all", kids: Req[], s: Tri | undefined, coreq: boolean): Req | undefined {
   if (n !== "all" && n >= kids.length) n = "all";
@@ -29,7 +29,7 @@ function toReq(node: ReqNode, r: EvalResult | undefined, coreq: boolean): Req | 
       return reqGroup(node.n, kids, r?.s, coreq);
     }
     default:
-      return { k: "cond", text: describeNode(node), s: r?.s, coreq, note: r?.note };
+      return { k: "cond", node, s: r?.s, coreq, note: r?.note };
   }
 }
 
@@ -45,7 +45,7 @@ export type Link = "required" | "coreq" | "option";
 export type UpNode =
   | { k: "course"; code: string; conc?: boolean; minGrade?: number; coreq?: boolean; seen?: boolean; kids: UpNode[] }
   | { k: "group"; n: number | "all"; kids: UpNode[] }
-  | { k: "other"; text: string };
+  | { k: "other"; node: ReqNode };
 
 export interface DownNode {
   code: string;
@@ -77,7 +77,7 @@ function fromReq(node: ReqNode, coreq: boolean, coursesOnly: boolean): UpNode | 
     case "notCourses":
       return undefined;
     default:
-      return { k: "other", text: describeNode(node) };
+      return { k: "other", node };
   }
 }
 

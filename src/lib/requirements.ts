@@ -1,29 +1,30 @@
 import type { Catalog, ListKey, Transcript } from "./types";
 import { equivalents } from "./evaluate";
+import { same, type Text } from "./i18n";
 
 export type Category = "required" | "te1" | "te2" | "te3" | "te4" | "te5" | "natsci" | "ethics" | "cseA" | "cseB" | "cseC" | "cseD";
 
-export const CATEGORY_LABEL: Record<Category, string> = {
-  required: "必修",
-  te1: "TE List 1",
-  te2: "TE List 2",
-  te3: "TE List 3",
-  te4: "TE List 4",
-  te5: "TE List 5",
-  natsci: "Natural Science",
-  ethics: "Ethics",
-  cseA: "CSE List A",
-  cseB: "CSE List B",
-  cseC: "CSE List C",
-  cseD: "CSE List D",
+export const CATEGORY_LABEL: Record<Category, Text> = {
+  required: { en: "Required", zh: "必修" },
+  te1: same("TE List 1"),
+  te2: same("TE List 2"),
+  te3: same("TE List 3"),
+  te4: same("TE List 4"),
+  te5: same("TE List 5"),
+  natsci: same("Natural Science"),
+  ethics: same("Ethics"),
+  cseA: same("CSE List A"),
+  cseB: same("CSE List B"),
+  cseC: same("CSE List C"),
+  cseD: same("CSE List D"),
 };
 
-export const CATEGORY_GROUPS: { label: string; cats: Category[] }[] = [
-  { label: "必修课", cats: ["required"] },
-  { label: "技术选修 (TE)", cats: ["te1", "te2", "te3", "te4", "te5"] },
-  { label: "自然科学 (NS)", cats: ["natsci"] },
-  { label: "伦理 (Ethics)", cats: ["ethics"] },
-  { label: "通识选修 (CSE)", cats: ["cseA", "cseC", "cseD"] },
+export const CATEGORY_GROUPS: { label: Text; cats: Category[] }[] = [
+  { label: { en: "Required courses", zh: "必修课" }, cats: ["required"] },
+  { label: { en: "Technical electives (TE)", zh: "技术选修 (TE)" }, cats: ["te1", "te2", "te3", "te4", "te5"] },
+  { label: { en: "Natural science (NS)", zh: "自然科学 (NS)" }, cats: ["natsci"] },
+  { label: { en: "Ethics", zh: "伦理 (Ethics)" }, cats: ["ethics"] },
+  { label: { en: "Complementary studies (CSE)", zh: "通识选修 (CSE)" }, cats: ["cseA", "cseC", "cseD"] },
 ];
 
 /** Communication-requirement courses can't double as List C CSEs for this major. */
@@ -93,7 +94,7 @@ export function buildCategorizer(catalog: Catalog): Categorizer {
 export type ProgressStatus = "completed" | "inProgress" | "missing";
 
 export interface SlotFill {
-  label: string;
+  label: Text;
   accepts: Category[];
   code?: string;
   status: ProgressStatus;
@@ -123,29 +124,29 @@ export interface DegreeProgress {
 }
 
 interface Slot {
-  label: string;
+  label: Text;
   accepts: Category[];
 }
 
 const TE_SLOTS: Slot[] = [
-  { label: "List 1", accepts: ["te1"] },
-  { label: "List 1", accepts: ["te1"] },
-  { label: "List 1 或 List 2", accepts: ["te1", "te2"] },
-  { label: "List 3", accepts: ["te3"] },
-  { label: "List 3", accepts: ["te3"] },
-  { label: "List 3", accepts: ["te3"] },
-  { label: "List 4", accepts: ["te4"] },
-  { label: "List 5 或 List 1–4 任意", accepts: ["te1", "te2", "te3", "te4", "te5"] },
+  { label: same("List 1"), accepts: ["te1"] },
+  { label: same("List 1"), accepts: ["te1"] },
+  { label: { en: "List 1 or List 2", zh: "List 1 或 List 2" }, accepts: ["te1", "te2"] },
+  { label: same("List 3"), accepts: ["te3"] },
+  { label: same("List 3"), accepts: ["te3"] },
+  { label: same("List 3"), accepts: ["te3"] },
+  { label: same("List 4"), accepts: ["te4"] },
+  { label: { en: "List 5 or any of List 1–4", zh: "List 5 或 List 1–4 任意" }, accepts: ["te1", "te2", "te3", "te4", "te5"] },
 ];
 const NATSCI_SLOTS: Slot[] = [
-  { label: "Natural Science", accepts: ["natsci"] },
-  { label: "Natural Science", accepts: ["natsci"] },
+  { label: same("Natural Science"), accepts: ["natsci"] },
+  { label: same("Natural Science"), accepts: ["natsci"] },
 ];
-const ETHICS_SLOTS: Slot[] = [{ label: "Ethics List", accepts: ["ethics"] }];
+const ETHICS_SLOTS: Slot[] = [{ label: same("Ethics List"), accepts: ["ethics"] }];
 const CSE_SLOTS: Slot[] = [
-  { label: "List C", accepts: ["cseC"] },
-  { label: "List C", accepts: ["cseC"] },
-  { label: "List A / C / D", accepts: ["cseA", "cseC", "cseD"] },
+  { label: same("List C"), accepts: ["cseC"] },
+  { label: same("List C"), accepts: ["cseC"] },
+  { label: same("List A / C / D"), accepts: ["cseA", "cseC", "cseD"] },
 ];
 
 /** Maximum bipartite matching of courses into slots (augmenting paths; inputs are tiny). */

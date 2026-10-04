@@ -307,7 +307,7 @@ describe("career recommendations", () => {
 
   it("leaves List 1 requirements for the 3B slots that demand them", () => {
     const pick = run("3A", ["software"]).suggestions.find((s) => s.kind === "elective")!;
-    expect(pick.fills).not.toMatch(/List 1/);
+    expect(pick.fills?.en).not.toMatch(/List 1/);
   });
 
   it("changes picks with the direction", () => {

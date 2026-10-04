@@ -1,4 +1,5 @@
 import { levelIndex } from "./codes";
+import type { Text } from "./i18n";
 import type { OfferingIssue } from "./offerings";
 import type { Catalog, Course, ReqNode, Transcript, TranscriptCourse } from "./types";
 import { numericGrade } from "./transcript";
@@ -11,7 +12,7 @@ export interface EvalResult {
   kids?: EvalResult[];
   /** Courses in a course rule that are satisfied. */
   have?: string[];
-  note?: string;
+  note?: Text;
 }
 
 export interface StudentContext {
@@ -101,14 +102,14 @@ export function evaluate(node: ReqNode, ctx: StudentContext): EvalResult {
         } else if (node.conc && ctx.concurrent.has(code)) have.push(code);
       }
       const s: Tri = have.length >= need ? "ok" : have.length + pendingGrade >= need ? "unk" : "no";
-      return { s, node, have, note: s === "unk" ? "成绩尚未出来" : undefined };
+      return { s, node, have, note: s === "unk" ? { en: "grade not yet available", zh: "成绩尚未出来" } : undefined };
     }
     case "level": {
       const mine = levelIndex(ctx.level);
       const req = levelIndex(node.level);
       if (mine < req) return { s: "no", node };
       // Many "level 4A" rules omit "or higher" even though later terms are allowed in practice.
-      if (node.exact && mine > req) return { s: "unk", node, note: `日历写的是恰好 ${node.level}，请确认高年级能否选` };
+      if (node.exact && mine > req) return { s: "unk", node, note: { en: `the calendar says exactly ${node.level}; confirm whether later levels may enrol`, zh: `日历写的是恰好 ${node.level}，请确认高年级能否选` } };
       return { s: "ok", node };
     }
     case "program":
@@ -120,7 +121,7 @@ export function evaluate(node: ReqNode, ctx: StudentContext): EvalResult {
       const hit = node.courses.filter((c) => ctx.taken.has(c) || (node.conc && ctx.concurrent.has(c)));
       if (!hit.length) return { s: "ok", node };
       // Topic-specific antirequisites (e.g. one ECE 493 topic) can't be matched from course codes alone.
-      if (/\bTopic\b/i.test(node.text)) return { s: "unk", node, have: hit, note: "只限特定 Topic，请核对" };
+      if (/\bTopic\b/i.test(node.text)) return { s: "unk", node, have: hit, note: { en: "applies to a specific topic only; please verify", zh: "只限特定 Topic，请核对" } };
       return { s: "no", node, have: hit };
     }
     case "avg":
@@ -132,7 +133,7 @@ export function evaluate(node: ReqNode, ctx: StudentContext): EvalResult {
       return { s: ok ? "ok" : "unk", node };
     }
     case "hs":
-      return { s: "ok", node, note: "高中课程要求，默认已满足" };
+      return { s: "ok", node, note: { en: "high school requirement, assumed met", zh: "高中课程要求，默认已满足" } };
     case "text":
       return { s: "unk", node };
   }
