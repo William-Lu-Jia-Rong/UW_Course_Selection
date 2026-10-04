@@ -7,7 +7,8 @@ import { TranscriptPanel, type Settings } from "./components/TranscriptPanel";
 import { UploadZone } from "./components/UploadZone";
 import { cx } from "./components/ui";
 import { extractCodes } from "./lib/codes";
-import { buildContext, evaluateCourse } from "./lib/evaluate";
+import { applyOfferingIssue, buildContext, evaluateCourse } from "./lib/evaluate";
+import { isCancelled, offeringIssue } from "./lib/offerings";
 import { buildCategorizer, computeProgress } from "./lib/requirements";
 import { usePersistentState } from "./lib/storage";
 import { suggestedTargetLevel } from "./lib/transcript";
@@ -48,7 +49,7 @@ export default function App() {
     const map = new Map<string, Offering[]>();
     if (!catalog) return map;
     if (mode === "official") {
-      for (const o of schedule?.offerings ?? []) map.set(o.code, [...(map.get(o.code) ?? []), o]);
+      for (const o of schedule?.offerings ?? []) if (!isCancelled(o)) map.set(o.code, [...(map.get(o.code) ?? []), o]);
     } else {
       for (const code of extractCodes(customText, (c) => !!catalog.courses[c])) {
         map.set(code, [{ code, title: catalog.courses[code].title, campus: "自定义列表" }]);
@@ -65,7 +66,7 @@ export default function App() {
     const codes = new Set([...cz.categories.keys(), ...plan, ...(mode === "custom" ? offered.keys() : [])]);
     return [...codes]
       .filter((c) => catalog.courses[c] && !staleInfoSession(c))
-      .map((c) => evaluateCourse(catalog.courses[c], ctx));
+      .map((c) => applyOfferingIssue(evaluateCourse(catalog.courses[c], ctx), offeringIssue(offered.get(c))));
   }, [catalog, cz, transcript, settings.includeInProgress, level, plan, mode, offered]);
 
   const evalMap = useMemo(() => new Map(evals.map((e) => [e.course.code, e])), [evals]);

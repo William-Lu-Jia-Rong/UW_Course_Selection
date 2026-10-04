@@ -2,6 +2,7 @@ import { formatCode } from "../lib/codes";
 import { unmetReasons } from "../lib/describe";
 import type { CourseEval } from "../lib/evaluate";
 import type { Offering } from "../lib/types";
+import { FlowRating } from "./FlowRating";
 import { AVAILABILITY, Badge, Button, Card } from "./ui";
 
 interface Props {
@@ -32,16 +33,22 @@ export function PlanPanel({ plan, evals, offered, onRemove, onClear }: Props) {
           {plan.map((code) => {
             const ev = evals.get(code);
             const meta = ev && AVAILABILITY[ev.availability];
+            const rule = ev && (ev.availability === "antireq" ? ev.antireq : ev.availability === "needsCoreq" ? ev.coreq : ev.prereq);
             const problem =
-              ev && ev.availability !== "eligible"
-                ? unmetReasons((ev.availability === "antireq" ? ev.antireq : ev.availability === "needsCoreq" ? ev.coreq : ev.prereq)!, 2)
-                : [];
+              !ev || ev.availability === "eligible"
+                ? []
+                : ev.offeringIssue && (ev.availability === "restricted" || (ev.availability === "check" && ev.prereq?.s !== "unk"))
+                  ? [`开课备注：${ev.offeringIssue.note}`]
+                  : rule
+                    ? unmetReasons(rule, 2)
+                    : [];
             return (
               <li key={code} className="group text-sm">
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-semibold">{formatCode(code)}</span>
                   {meta && <Badge tone={meta.tone}>{meta.label}</Badge>}
                   {!offered.has(code) && <Badge tone="amber">不在开课列表</Badge>}
+                  <FlowRating code={code} compact />
                   <button type="button" onClick={() => onRemove(code)} className="ml-auto text-stone-400 hover:text-rose-600" aria-label="移除">
                     ×
                   </button>

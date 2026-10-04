@@ -29,19 +29,26 @@ export const CATEGORY_GROUPS: { label: string; cats: Category[] }[] = [
 /** Communication-requirement courses can't double as List C CSEs for this major. */
 const COMM_REQUIREMENT = ["COMMST192", "ENGL192"];
 
+export type MembershipReason = "listed" | "crossListed" | "subject";
+
 export interface Categorizer {
   categories: Map<string, Category[]>;
   requiredTerm: Map<string, string>;
+  /** Why a course is in a list, keyed by `${code}:${category}`. */
+  reasons: Map<string, MembershipReason>;
 }
 
 export function buildCategorizer(catalog: Catalog): Categorizer {
   const { program, courses } = catalog;
   const categories = new Map<string, Category[]>();
-  const add = (code: string, cat: Category) => {
+  const reasons = new Map<string, MembershipReason>();
+  const add = (code: string, cat: Category, reason: MembershipReason = "listed") => {
     const list = categories.get(code) ?? [];
     if (!list.includes(cat)) list.push(cat);
     categories.set(code, list);
+    if (!reasons.has(`${code}:${cat}`)) reasons.set(`${code}:${cat}`, reason);
   };
+  const twins = (code: string) => courses[code]?.cross ?? [];
   const requiredTerm = new Map<string, string>();
   for (const t of program.termByTerm) {
     for (const item of t.items) {
@@ -66,16 +73,19 @@ export function buildCategorizer(catalog: Catalog): Categorizer {
     ["cseD", "cseD"],
   ];
   for (const [key, cat] of listCats) for (const code of program.lists[key]) add(code, cat);
+  // A cross-listed course is the same course under another subject code.
+  for (const [key, cat] of listCats) for (const code of program.lists[key]) for (const twin of twins(code)) add(twin, cat, "crossListed");
 
-  const excluded = new Set([...program.lists.cseExclusions, ...program.lists.cseD, ...COMM_REQUIREMENT]);
+  const excludedFromC = new Set([...program.lists.cseExclusions, ...program.lists.cseD, ...COMM_REQUIREMENT]);
+  const isExcludedFromC = (code: string) => excludedFromC.has(code) || twins(code).some((t) => excludedFromC.has(t));
   const cSubjects = new Set(program.cseSubjects.C);
   const dSubjects = new Set(program.cseSubjects.D);
   for (const c of Object.values(courses)) {
     if (c.units < 0.5) continue;
-    if (cSubjects.has(c.subject) && !excluded.has(c.code)) add(c.code, "cseC");
-    if (dSubjects.has(c.subject)) add(c.code, "cseD");
+    if (cSubjects.has(c.subject) && !isExcludedFromC(c.code)) add(c.code, "cseC", "subject");
+    if (dSubjects.has(c.subject)) add(c.code, "cseD", "subject");
   }
-  return { categories, requiredTerm };
+  return { categories, requiredTerm, reasons };
 }
 
 // ---------- progress ----------

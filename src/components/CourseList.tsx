@@ -2,12 +2,21 @@ import { useState } from "react";
 import { formatCode } from "../lib/codes";
 import { unmetReasons } from "../lib/describe";
 import type { CourseEval } from "../lib/evaluate";
-import { CATEGORY_LABEL, type Categorizer } from "../lib/requirements";
+import { CATEGORY_LABEL, type Categorizer, type MembershipReason } from "../lib/requirements";
 import type { Offering } from "../lib/types";
+import { UWFLOW_COURSE_URL } from "../lib/uwflow";
+import { FlowRating } from "./FlowRating";
 import { RequisiteTree } from "./RequisiteTree";
 import { AVAILABILITY, Badge, cx } from "./ui";
 
-const KUALI_COURSE_URL = "https://uwaterloo.ca/academic-calendar/undergraduate-studies/catalog#/courses/view/";
+const KUALI_COURSE_URL = "https://uwaterloo.ca/academic-calendar/undergraduate-studies/catalog#/courses/";
+
+const REASON_SUFFIX: Record<MembershipReason, string> = { listed: "", crossListed: "（交叉列名）", subject: "（按科目代码）" };
+const REASON_HINT: Record<MembershipReason, string> = {
+  listed: "这门课被单独列在该列表里",
+  crossListed: "它的交叉列名课程（同一门课的另一个课号）在这个列表里",
+  subject: "BASc Complementary Studies 页面规定：这个科目代码下的任何 0.5 学分课程都算该列表（List D 和 Exclusions 里的除外）",
+};
 
 interface RowProps {
   ev: CourseEval;
@@ -24,13 +33,15 @@ function CourseRow({ ev, cz, offerings, planned, onTogglePlan }: RowProps) {
   const cats = cz.categories.get(course.code) ?? [];
   const reqTerm = cz.requiredTerm.get(course.code);
   const reasons =
-    availability === "locked" || availability === "check"
-      ? ev.prereq && unmetReasons(ev.prereq)
-      : availability === "needsCoreq"
-        ? ev.coreq && unmetReasons(ev.coreq)
-        : availability === "antireq"
-          ? ev.antireq && unmetReasons(ev.antireq)
-          : undefined;
+    availability === "restricted" || (availability === "check" && ev.offeringIssue && ev.prereq?.s !== "unk")
+      ? [`开课备注：${ev.offeringIssue?.note}`]
+      : availability === "locked" || availability === "check"
+        ? ev.prereq && unmetReasons(ev.prereq)
+        : availability === "needsCoreq"
+          ? ev.coreq && unmetReasons(ev.coreq)
+          : availability === "antireq"
+            ? ev.antireq && unmetReasons(ev.antireq)
+            : undefined;
 
   return (
     <li className={cx("border-b border-stone-100 last:border-0", open && "bg-stone-50/60")}>
@@ -45,11 +56,15 @@ function CourseRow({ ev, cz, offerings, planned, onTogglePlan }: RowProps) {
             <Badge tone={meta.tone} title={meta.hint}>
               {meta.label}
             </Badge>
-            {cats.map((c) => (
-              <Badge key={c} tone={c === "required" ? "gold" : c.startsWith("te") ? "violet" : "stone"}>
-                {c === "required" && reqTerm ? `${reqTerm} 必修` : CATEGORY_LABEL[c]}
-              </Badge>
-            ))}
+            {cats.map((c) => {
+              const why = cz.reasons.get(`${course.code}:${c}`) ?? "listed";
+              return (
+                <Badge key={c} tone={c === "required" ? "gold" : c.startsWith("te") ? "violet" : "stone"} title={REASON_HINT[why]}>
+                  {c === "required" && reqTerm ? `${reqTerm} 必修` : CATEGORY_LABEL[c] + REASON_SUFFIX[why]}
+                </Badge>
+              );
+            })}
+            <FlowRating code={course.code} />
             {offerings?.some((o) => o.notes) && <Badge tone="blue">有备注</Badge>}
             {reasons?.length ? <span className="text-xs text-stone-500">· {reasons.join("；")}</span> : null}
           </div>
@@ -100,9 +115,14 @@ function CourseRow({ ev, cz, offerings, planned, onTogglePlan }: RowProps) {
             </div>
           )}
           {!ev.prereq && !ev.coreq && !ev.antireq && <p className="text-xs text-stone-500">没有先修/同修/反修要求。</p>}
-          <a className="inline-block text-xs text-sky-700 hover:underline" href={KUALI_COURSE_URL + course.pid} target="_blank" rel="noreferrer">
-            在 Academic Calendar 中查看 ↗
-          </a>
+          <div className="flex flex-wrap gap-4">
+            <a className="text-xs text-sky-700 hover:underline" href={KUALI_COURSE_URL + course.pid} target="_blank" rel="noreferrer">
+              在 Academic Calendar 中查看 ↗
+            </a>
+            <a className="text-xs text-sky-700 hover:underline" href={UWFLOW_COURSE_URL + course.code.toLowerCase()} target="_blank" rel="noreferrer">
+              在 UWFlow 看评价 ↗
+            </a>
+          </div>
         </div>
       )}
     </li>

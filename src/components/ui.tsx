@@ -42,7 +42,8 @@ const TONES: Record<Tone, string> = {
 export const AVAILABILITY: Record<Availability, { label: string; tone: Tone; hint: string }> = {
   eligible: { label: "可选", tone: "green", hint: "先修/反修条件都满足" },
   needsCoreq: { label: "需同修", tone: "teal", hint: "先修满足，但有同修课（corequisite）需要同一学期一起选" },
-  check: { label: "需确认", tone: "amber", hint: "有无法自动判断的条件（如语言能力、特殊许可），请人工确认" },
+  check: { label: "需确认", tone: "amber", hint: "有无法自动判断的条件（如语言能力、特殊许可、需要院系同意），请人工确认" },
+  restricted: { label: "限制开放", tone: "red", hint: "开课备注写明只对特定学生开放（如双学位、GBDA、建筑系等）" },
   locked: { label: "未满足", tone: "stone", hint: "先修课或年级/专业条件不满足" },
   antireq: { label: "反修冲突", tone: "red", hint: "你已修过（或计划修）它的反修课（antirequisite）" },
   taken: { label: "已修", tone: "blue", hint: "已经修过或正在修" },

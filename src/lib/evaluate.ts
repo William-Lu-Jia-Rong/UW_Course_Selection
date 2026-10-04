@@ -1,4 +1,5 @@
 import { levelIndex } from "./codes";
+import type { OfferingIssue } from "./offerings";
 import type { Catalog, Course, ReqNode, Transcript, TranscriptCourse } from "./types";
 import { numericGrade } from "./transcript";
 
@@ -105,8 +106,10 @@ export function evaluate(node: ReqNode, ctx: StudentContext): EvalResult {
     case "level": {
       const mine = levelIndex(ctx.level);
       const req = levelIndex(node.level);
-      const ok = node.exact ? mine === req : mine >= req;
-      return { s: ok ? "ok" : "no", node };
+      if (mine < req) return { s: "no", node };
+      // Many "level 4A" rules omit "or higher" even though later terms are allowed in practice.
+      if (node.exact && mine > req) return { s: "unk", node, note: `日历写的是恰好 ${node.level}，请确认高年级能否选` };
+      return { s: "ok", node };
     }
     case "program":
       return { s: programMatches(node, ctx) ? "ok" : "no", node };
@@ -135,7 +138,7 @@ export function evaluate(node: ReqNode, ctx: StudentContext): EvalResult {
   }
 }
 
-export type Availability = "taken" | "eligible" | "needsCoreq" | "check" | "locked" | "antireq";
+export type Availability = "taken" | "eligible" | "needsCoreq" | "check" | "restricted" | "locked" | "antireq";
 
 export interface CourseEval {
   course: Course;
@@ -143,6 +146,13 @@ export interface CourseEval {
   prereq?: EvalResult;
   coreq?: EvalResult;
   antireq?: EvalResult;
+  offeringIssue?: OfferingIssue;
+}
+
+/** Downgrades an otherwise-available course when its schedule notes restrict enrolment. */
+export function applyOfferingIssue(ev: CourseEval, issue: OfferingIssue | undefined): CourseEval {
+  if (!issue || !["eligible", "needsCoreq", "check"].includes(ev.availability)) return issue ? { ...ev, offeringIssue: issue } : ev;
+  return { ...ev, offeringIssue: issue, availability: issue.kind === "restricted" ? "restricted" : "check" };
 }
 
 export function evaluateCourse(course: Course, ctx: StudentContext): CourseEval {

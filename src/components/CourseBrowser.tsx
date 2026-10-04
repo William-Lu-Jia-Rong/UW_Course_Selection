@@ -10,11 +10,11 @@ type AvailFilter = "eligible" | "maybe" | "notTaken" | "all";
 const AVAIL_FILTERS: { key: AvailFilter; label: string; match: Availability[] }[] = [
   { key: "eligible", label: "能选", match: ["eligible", "needsCoreq"] },
   { key: "maybe", label: "能选 + 需确认", match: ["eligible", "needsCoreq", "check"] },
-  { key: "notTaken", label: "全部未修", match: ["eligible", "needsCoreq", "check", "locked", "antireq"] },
-  { key: "all", label: "全部", match: ["eligible", "needsCoreq", "check", "locked", "antireq", "taken"] },
+  { key: "notTaken", label: "全部未修", match: ["eligible", "needsCoreq", "check", "restricted", "locked", "antireq"] },
+  { key: "all", label: "全部", match: ["eligible", "needsCoreq", "check", "restricted", "locked", "antireq", "taken"] },
 ];
 
-const AVAIL_ORDER: Availability[] = ["eligible", "needsCoreq", "check", "locked", "antireq", "taken"];
+const AVAIL_ORDER: Availability[] = ["eligible", "needsCoreq", "check", "restricted", "locked", "antireq", "taken"];
 
 interface Props {
   evals: CourseEval[];

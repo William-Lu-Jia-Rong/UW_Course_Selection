@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { extractCodes } from "./codes";
-import { buildContext, evaluateCourse } from "./evaluate";
+import { applyOfferingIssue, buildContext, evaluateCourse } from "./evaluate";
+import { offeringIssue } from "./offerings";
 import { buildCategorizer, computeProgress } from "./requirements";
 import { parseTranscriptLines, suggestedTargetLevel } from "./transcript";
 import type { Catalog, Transcript } from "./types";
@@ -149,6 +150,54 @@ describe("degree progress", () => {
   it("does not count the communication requirement as a List C CSE", () => {
     expect(cz.categories.get("ENGL192") ?? []).not.toContain("cseC");
     expect(cz.categories.get("ENGL200A") ?? []).toContain("cseC");
+  });
+});
+
+describe("level rules without 'or higher'", () => {
+  it("treats a higher level as needing confirmation, not as locked", () => {
+    const ctx = buildContext(catalog, transcript, { includeInProgress: true, level: "4B", programs: ["H-Computer Engineering"] });
+    const ev = evaluateCourse(catalog.courses.ECE454, ctx);
+    expect(ev.prereq && JSON.stringify(ev.prereq)).toContain('"s":"unk"');
+    expect(availability("ECE454", transcript, { level: "3A" })).toBe("locked");
+  });
+});
+
+describe("schedule notes", () => {
+  const offer = (notes: string) => [{ code: "X100", title: "", campus: "UW", notes }];
+  it("classifies restrictions, consent and open notes", () => {
+    expect(offeringIssue(offer("Open to Double Degree Students Only"))?.kind).toBe("restricted");
+    expect(offeringIssue(offer("MGTE students only"))?.kind).toBe("restricted");
+    expect(offeringIssue(offer("Reserved for Legal Studies majors in at least 3A only"))?.kind).toBe("restricted");
+    expect(offeringIssue(offer("Department Consent Required"))?.kind).toBe("consent");
+    expect(offeringIssue(offer("Online course Reserved for co-op and ENG students only"))).toBeUndefined();
+    expect(offeringIssue(offer("Held with ECON 673"))).toBeUndefined();
+  });
+  it("ignores a restriction when another offering of the course is open", () => {
+    expect(offeringIssue([...offer("SE students only."), { code: "X100", title: "", campus: "UW" }])).toBeUndefined();
+  });
+  it("downgrades an eligible course", () => {
+    const ctx = buildContext(catalog, transcript, { includeInProgress: true, level: "3A", programs: ["H-Computer Engineering"] });
+    const ev = applyOfferingIssue(evaluateCourse(catalog.courses.STV202, ctx), offeringIssue(offer("GBDA students only.")));
+    expect(ev.availability).toBe("restricted");
+  });
+});
+
+describe("CSE list membership", () => {
+  it("records why a course is on a list", () => {
+    expect(cz.reasons.get("STV202:cseA")).toBe("listed");
+    expect(cz.reasons.get("BET400:cseC")).toBe("subject");
+  });
+  it("extends named lists to cross-listed twins", () => {
+    for (const code of catalog.program.lists.cseA) {
+      for (const twin of catalog.courses[code]?.cross ?? []) expect(cz.categories.get(twin)).toContain("cseA");
+    }
+  });
+  it("excludes List C candidates whose cross-listed twin is on List D", () => {
+    const dTwins = Object.values(catalog.courses).filter(
+      (c) => !catalog.program.lists.cseC.includes(c.code) && (c.cross ?? []).some((t) => catalog.program.lists.cseD.includes(t)),
+    );
+    expect(dTwins.length).toBeGreaterThan(0);
+    for (const c of dTwins) expect(cz.reasons.get(`${c.code}:cseC`)).not.toBe("subject");
   });
 });
 

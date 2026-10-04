@@ -39,18 +39,23 @@ export function describeNode(node: ReqNode): string {
   }
 }
 
-/** Short reasons for a failing/unknown result: the unmet leaves (or unmet "one of" groups). */
+const MAX_REASON = 140;
+
+/** One-line summary of what is still needed for an unmet (or unknown) result. */
+function summarize(r: EvalResult, nested: boolean): string {
+  const withNote = (s: string) => (r.note ? `${s}（${r.note}）` : s);
+  if (!r.kids) return withNote(describeNode(r.node));
+  const unmet = r.kids.filter((k) => k.s !== "ok");
+  const parts = r.node.t === "some" ? r.kids.map((k) => summarize(k, true)) : unmet.map((k) => summarize(k, true));
+  const joined = parts.join(r.node.t === "some" ? " 或 " : "，且 ");
+  return nested && parts.length > 1 ? `（${joined}）` : joined;
+}
+
+/** Short reasons for a failing/unknown result, one per unmet top-level requirement. */
 export function unmetReasons(r: EvalResult, max = 3): string[] {
-  const out: string[] = [];
-  const walk = (x: EvalResult) => {
-    if (x.s === "ok" || out.length >= max) return;
-    if (x.node.t === "all") x.kids?.forEach(walk);
-    else if (x.node.t === "some") {
-      const leaves = x.kids?.every((k) => !k.kids) ?? false;
-      if (leaves && x.kids && x.kids.length <= 3) out.push(x.kids.map((k) => describeNode(k.node)).join(" 或 "));
-      else out.push(describeNode(x.node) + "…");
-    } else out.push(describeNode(x.node));
-  };
-  walk(r);
-  return out;
+  const top = r.node.t === "all" && r.kids ? r.kids.filter((k) => k.s !== "ok") : [r];
+  return top.slice(0, max).map((k) => {
+    const s = summarize(k, false);
+    return s.length > MAX_REASON ? s.slice(0, MAX_REASON) + "…" : s;
+  });
 }
