@@ -4,6 +4,7 @@ import type { CourseEval } from "../lib/evaluate";
 import type { Categorizer } from "../lib/requirements";
 import type { Catalog, Offering, Schedule } from "../lib/types";
 import { CourseBrowser } from "./CourseBrowser";
+import { useOpenChain } from "./PrereqChain";
 import { AVAILABILITY, Badge, Button, Card, cx } from "./ui";
 
 export type OfferingMode = "official" | "custom";
@@ -27,6 +28,7 @@ interface Props {
 export function NextTermView(p: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string>();
+  const openChain = useOpenChain();
 
   const refresh = async () => {
     setRefreshing(true);
@@ -102,7 +104,9 @@ export function NextTermView(p: Props) {
               const meta = ev && AVAILABILITY[ev.availability];
               return (
                 <li key={code} className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="w-20 font-mono font-semibold">{formatCode(code)}</span>
+                  <button type="button" onClick={() => openChain(code)} className="w-20 text-left font-mono font-semibold text-sky-800 hover:underline" title="查看课程链">
+                    {formatCode(code)}
+                  </button>
                   <span className="text-stone-700">{p.catalog.courses[code]?.title}</span>
                   {meta && <Badge tone={meta.tone}>{meta.label}</Badge>}
                   <Badge tone={offered ? "green" : "stone"}>{offered ? "下学期开" : "列表里没有"}</Badge>

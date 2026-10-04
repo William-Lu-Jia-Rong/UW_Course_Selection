@@ -5,6 +5,7 @@ import type { CourseEval } from "../lib/evaluate";
 import { CATEGORY_LABEL, type Categorizer, type MembershipReason } from "../lib/requirements";
 import type { Offering } from "../lib/types";
 import { UWFLOW_COURSE_URL } from "../lib/uwflow";
+import { useOpenChain } from "./PrereqChain";
 import { FlowRating } from "./FlowRating";
 import { RequisiteTree } from "./RequisiteTree";
 import { AVAILABILITY, Badge, cx } from "./ui";
@@ -28,6 +29,7 @@ interface RowProps {
 
 function CourseRow({ ev, cz, offerings, planned, onTogglePlan }: RowProps) {
   const [open, setOpen] = useState(false);
+  const openChain = useOpenChain();
   const { course, availability } = ev;
   const meta = AVAILABILITY[availability];
   const cats = cz.categories.get(course.code) ?? [];
@@ -68,6 +70,14 @@ function CourseRow({ ev, cz, offerings, planned, onTogglePlan }: RowProps) {
             {offerings?.some((o) => o.notes) && <Badge tone="blue">有备注</Badge>}
             {reasons?.length ? <span className="text-xs text-stone-500">· {reasons.join("；")}</span> : null}
           </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => openChain(course.code)}
+          title="查看这门课完整的前置链和后续链"
+          className="shrink-0 rounded-lg border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-600 transition hover:border-stone-400"
+        >
+          课程链
         </button>
         {availability !== "taken" && (
           <button

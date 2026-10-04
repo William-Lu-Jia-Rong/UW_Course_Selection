@@ -94,6 +94,7 @@ export type ProgressStatus = "completed" | "inProgress" | "missing";
 
 export interface SlotFill {
   label: string;
+  accepts: Category[];
   code?: string;
   status: ProgressStatus;
 }
@@ -215,7 +216,7 @@ export function computeProgress(catalog: Catalog, transcript: Transcript, cz: Ca
 
   const fill = (slots: Slot[], candidates: string[]) => {
     const owners = matchSlots(slots, candidates, cats);
-    return slots.map((s, i): SlotFill => ({ label: s.label, code: owners[i], status: owners[i] ? st(owners[i]!) : "missing" }));
+    return slots.map((s, i): SlotFill => ({ label: s.label, accepts: s.accepts, code: owners[i], status: owners[i] ? st(owners[i]!) : "missing" }));
   };
 
   const te = fill(TE_SLOTS, pool);

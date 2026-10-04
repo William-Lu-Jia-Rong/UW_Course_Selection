@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { CareerView } from "./components/CareerView";
 import { CourseBrowser } from "./components/CourseBrowser";
+import { ChainProvider } from "./components/PrereqChain";
 import { NextTermView, type OfferingMode } from "./components/NextTermView";
 import { PlanPanel } from "./components/PlanPanel";
 import { ProgressView } from "./components/ProgressView";
@@ -15,7 +17,7 @@ import { suggestedTargetLevel } from "./lib/transcript";
 import type { Catalog, Offering, Schedule, Transcript } from "./lib/types";
 
 const PROGRAMS = ["H-Computer Engineering"];
-type Tab = "next" | "eligible" | "progress";
+type Tab = "next" | "career" | "eligible" | "progress";
 
 export default function App() {
   const [catalog, setCatalog] = useState<Catalog>();
@@ -28,6 +30,7 @@ export default function App() {
   const [liveSchedule, setLiveSchedule] = usePersistentState<Schedule | null>("liveSchedule", null);
   const [snapshot, setSnapshot] = useState<Schedule | null>(null);
   const [tab, setTab] = usePersistentState<Tab>("tab", "next");
+  const [careers, setCareers] = usePersistentState<string[]>("careers", []);
 
   useEffect(() => {
     fetch("/data/catalog.json")
@@ -58,20 +61,25 @@ export default function App() {
     return map;
   }, [catalog, mode, schedule, customText]);
 
+  const ctx = useMemo(
+    () => catalog && transcript && buildContext(catalog, transcript, { includeInProgress: settings.includeInProgress, level, programs: PROGRAMS, concurrent: plan }),
+    [catalog, transcript, settings.includeInProgress, level, plan],
+  );
+
   const evals = useMemo(() => {
-    if (!catalog || !cz || !transcript) return [];
-    const ctx = buildContext(catalog, transcript, { includeInProgress: settings.includeInProgress, level, programs: PROGRAMS, concurrent: plan });
+    if (!catalog || !cz || !ctx) return [];
     // 0-unit information sessions never show on transcripts; only the one for the planned term matters.
     const staleInfoSession = (c: string) => catalog.courses[c].units === 0 && cz.requiredTerm.has(c) && cz.requiredTerm.get(c) !== level;
     const codes = new Set([...cz.categories.keys(), ...plan, ...(mode === "custom" ? offered.keys() : [])]);
     return [...codes]
       .filter((c) => catalog.courses[c] && !staleInfoSession(c))
       .map((c) => applyOfferingIssue(evaluateCourse(catalog.courses[c], ctx), offeringIssue(offered.get(c))));
-  }, [catalog, cz, transcript, settings.includeInProgress, level, plan, mode, offered]);
+  }, [catalog, cz, ctx, level, plan, mode, offered]);
 
   const evalMap = useMemo(() => new Map(evals.map((e) => [e.course.code, e])), [evals]);
   const progress = useMemo(() => catalog && cz && transcript && computeProgress(catalog, transcript, cz), [catalog, cz, transcript]);
   const togglePlan = (code: string) => setPlan((p) => (p.includes(code) ? p.filter((c) => c !== code) : [...p, code]));
+  const addToPlan = (codes: string[]) => setPlan((p) => [...p, ...codes.filter((c) => !p.includes(c))]);
 
   if (loadError) return <div className="p-10 text-rose-700">{loadError}</div>;
   if (!catalog || !cz) return <div className="p-10 text-stone-500">正在加载课程日历数据…</div>;
@@ -80,6 +88,7 @@ export default function App() {
   const offeredEligible = evals.filter((e) => offered.has(e.course.code) && (e.availability === "eligible" || e.availability === "needsCoreq")).length;
 
   return (
+    <ChainProvider catalog={catalog} cz={cz} ctx={ctx || undefined}>
     <div className="min-h-screen bg-stone-100/70 text-stone-900">
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-3">
@@ -130,6 +139,7 @@ export default function App() {
               {(
                 [
                   ["next", `下学期选课`, offeredEligible],
+                  ["career", "按方向推荐", undefined],
                   ["eligible", "所有能选的课", eligibleCount],
                   ["progress", "毕业进度", undefined],
                 ] as const
@@ -166,11 +176,27 @@ export default function App() {
                 targetLevel={level}
               />
             )}
+            {tab === "career" && progress && (
+              <CareerView
+                catalog={catalog}
+                cz={cz}
+                evals={evals}
+                offered={offered}
+                progress={progress}
+                level={level}
+                careers={careers}
+                setCareers={setCareers}
+                plan={plan}
+                onTogglePlan={togglePlan}
+                onAddToPlan={addToPlan}
+              />
+            )}
             {tab === "eligible" && <CourseBrowser evals={evals} cz={cz} plan={plan} onTogglePlan={togglePlan} offerings={offered} />}
             {tab === "progress" && progress && <ProgressView progress={progress} catalog={catalog} />}
           </div>
         </main>
       )}
     </div>
+    </ChainProvider>
   );
 }

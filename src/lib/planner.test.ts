@@ -1,11 +1,15 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { extractCodes } from "./codes";
-import { applyOfferingIssue, buildContext, evaluateCourse } from "./evaluate";
+import { CAREER_BY_ID, CAREERS } from "./careers";
+import { dependentsIndex, downstreamTree, upstreamTree } from "./chain";
+import { applyOfferingIssue, blockedByProgram, buildContext, evaluateCourse } from "./evaluate";
+import { buildChainGraph } from "./graph";
 import { offeringIssue } from "./offerings";
 import { buildCategorizer, computeProgress } from "./requirements";
+import { recommend } from "./recommend";
 import { parseTranscriptLines, suggestedTargetLevel } from "./transcript";
-import type { Catalog, Transcript } from "./types";
+import type { Catalog, Schedule, Transcript } from "./types";
 
 const catalog: Catalog = JSON.parse(readFileSync(new URL("../../public/data/catalog.json", import.meta.url), "utf8"));
 const cz = buildCategorizer(catalog);
@@ -204,5 +208,110 @@ describe("CSE list membership", () => {
 describe("pasted course lists", () => {
   it("extracts codes from free text", () => {
     expect(extractCodes("ECE 327, ece350 / CS 486 and XYZ 999", (c) => !!catalog.courses[c])).toEqual(["ECE327", "ECE350", "CS486"]);
+  });
+});
+
+describe("course chains", () => {
+  const idx = dependentsIndex(catalog);
+  const expandedCodes = (nodes: { code?: string; kids?: unknown[] }[], out: string[] = []): string[] => {
+    for (const n of nodes) {
+      if (n.code && n.kids?.length) out.push(n.code);
+      expandedCodes((n.kids ?? []) as typeof nodes, out);
+    }
+    return out;
+  };
+
+  it("walks prerequisites recursively", () => {
+    const up = upstreamTree(catalog, "ECE457C");
+    expect(up.courses).toContain("ECE203");
+    for (const c of upstreamTree(catalog, "ECE203").courses) expect(up.courses).toContain(c);
+  });
+
+  it("expands each course at most once", () => {
+    for (const code of ["ECE457C", "ECE498A", "CS486", "MATH239"]) {
+      const codes = expandedCodes(upstreamTree(catalog, code).roots as never);
+      expect(new Set(codes).size).toBe(codes.length);
+    }
+    const down = expandedCodes(downstreamTree(catalog, idx, "MATH117").roots as never);
+    expect(new Set(down).size).toBe(down.length);
+  });
+
+  it("labels how a later course depends on this one", () => {
+    const down = downstreamTree(catalog, idx, "ECE250");
+    expect(down.roots.find((n) => n.code === "ECE452")?.link).toBe("option");
+    const all = downstreamTree(catalog, idx, "ECE203").roots;
+    expect(all.some((n) => n.code === "ECE457C")).toBe(true);
+  });
+
+  it("lays out the full chain with prerequisites above and later courses below", () => {
+    const g = buildChainGraph(catalog, idx, "ECE222");
+    const row = new Map(g.nodes.map((n) => [n.id, n.row]));
+    expect(row.get("ECE222")).toBe(0);
+    expect(row.get("ECE150")).toBeLessThan(0);
+    expect(row.get("ECE224")).toBeGreaterThan(0);
+    for (const e of g.edges) {
+      expect(row.get(e.from)!).toBeLessThan(row.get(e.to)!);
+      expect(e.points[0][1]).toBeLessThan(e.points[e.points.length - 1][1]);
+    }
+    expect(g.edges.find((e) => e.from === "ECE150" && e.to === "ECE222")?.link).toBe("option");
+    expect(new Set(g.nodes.map((n) => `${n.x},${n.y}`)).size).toBe(g.nodes.length);
+  });
+
+  it("caps very large downstream sets to direct dependents", () => {
+    const g = buildChainGraph(catalog, idx, "MATH117", { maxDown: 30 });
+    expect(g.downOmitted).toBeGreaterThan(0);
+    expect(g.downCount - g.downOmitted).toBeLessThanOrEqual(30);
+    expect(g.nodes.filter((n) => n.row > 0).length).toBe(g.downCount - g.downOmitted);
+  });
+
+  it("hides courses closed to the student's program", () => {
+    const ctx = buildContext(catalog, transcript, { includeInProgress: true, level: "3A", programs: ["H-Computer Engineering"] });
+    const ok = (c: string) => !blockedByProgram(evaluateCourse(catalog.courses[c], ctx).prereq);
+    const full = downstreamTree(catalog, idx, "MATH119");
+    const mine = downstreamTree(catalog, idx, "MATH119", ok);
+    expect(mine.courses.size).toBeLessThan(full.courses.size);
+    expect(mine.hidden.size).toBeGreaterThan(0);
+    for (const c of mine.courses) expect(ok(c)).toBe(true);
+  });
+});
+
+describe("career recommendations", () => {
+  const schedule: Schedule = JSON.parse(readFileSync(new URL("../../public/data/schedule.json", import.meta.url), "utf8"));
+  const offered = new Set(schedule.offerings.map((o) => o.code));
+  const progress = computeProgress(catalog, transcript, cz);
+  const run = (level: string, careerIds: string[]) => {
+    const ctx = buildContext(catalog, transcript, { includeInProgress: true, level, programs: ["H-Computer Engineering"] });
+    const evals = [...cz.categories.keys()].filter((c) => catalog.courses[c]).map((c) => evaluateCourse(catalog.courses[c], ctx));
+    return recommend({ catalog, cz, evals, offered, progress, level, careers: careerIds.map((id) => CAREER_BY_ID.get(id)!) });
+  };
+
+  it("keeps the term's required courses and fills its elective slot", () => {
+    const rec = run("3A", ["ai"]);
+    const required = rec.suggestions.filter((s) => s.kind === "required").map((s) => s.pick?.code);
+    expect(required).toEqual(expect.arrayContaining(["ECE318", "ECE327", "ECE350", "ECE380"]));
+    const electives = rec.suggestions.filter((s) => s.kind === "elective");
+    expect(electives).toHaveLength(1);
+    expect(electives[0].pick?.why.length).toBeGreaterThan(0);
+  });
+
+  it("only picks offered courses the student can take, without repeats", () => {
+    for (const id of CAREERS.map((c) => c.id)) {
+      const picks = run("3A", [id]).suggestions.filter((s) => s.kind === "elective").map((s) => s.pick!);
+      for (const p of picks) {
+        expect(p.offered).toBe(true);
+        expect(["eligible", "needsCoreq", "check"]).toContain(p.availability);
+      }
+      expect(new Set(picks.map((p) => p.code)).size).toBe(picks.length);
+    }
+  });
+
+  it("leaves List 1 requirements for the 3B slots that demand them", () => {
+    const pick = run("3A", ["software"]).suggestions.find((s) => s.kind === "elective")!;
+    expect(pick.fills).not.toMatch(/List 1/);
+  });
+
+  it("changes picks with the direction", () => {
+    const pickFor = (id: string) => run("3A", [id]).suggestions.find((s) => s.kind === "elective")?.pick?.code;
+    expect(new Set(CAREERS.map((c) => pickFor(c.id))).size).toBeGreaterThan(2);
   });
 });

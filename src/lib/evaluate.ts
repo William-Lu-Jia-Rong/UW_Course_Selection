@@ -138,6 +138,22 @@ export function evaluate(node: ReqNode, ctx: StudentContext): EvalResult {
   }
 }
 
+/** True when program/plan rules alone rule the student out, whatever courses they take later. */
+export function blockedByProgram(r: EvalResult | undefined): boolean {
+  if (!r) return false;
+  switch (r.node.t) {
+    case "program":
+    case "notProgram":
+      return r.s === "no";
+    case "all":
+      return r.kids!.some(blockedByProgram);
+    case "some":
+      return r.kids!.filter((k) => !blockedByProgram(k)).length < r.node.n;
+    default:
+      return false;
+  }
+}
+
 export type Availability = "taken" | "eligible" | "needsCoreq" | "check" | "restricted" | "locked" | "antireq";
 
 export interface CourseEval {
