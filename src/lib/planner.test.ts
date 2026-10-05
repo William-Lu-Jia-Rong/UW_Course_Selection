@@ -8,7 +8,7 @@ import { buildChainGraph } from "./graph";
 import { offeringIssue } from "./offerings";
 import { buildCategorizer, computeProgress } from "./requirements";
 import { recommend } from "./recommend";
-import { parseTranscriptLines, suggestedTargetLevel } from "./transcript";
+import { emptyTranscript, parseTranscriptLines, suggestedTargetLevel } from "./transcript";
 import type { Catalog, Schedule, Transcript } from "./types";
 
 const catalog: Catalog = JSON.parse(readFileSync(new URL("../../public/data/catalog.json", import.meta.url), "utf8"));
@@ -115,6 +115,15 @@ describe("requisite evaluation", () => {
     expect(availability("ECE457B", transcript, { level: "4A" })).toBe("eligible");
     expect(availability("ECE498A")).toBe("locked");
     expect(availability("CS486", transcript, { level: "4A" })).toBe("locked");
+  });
+
+  it("lets users browse by program and level with an empty transcript", () => {
+    const empty = emptyTranscript("Computer Engineering");
+    expect(availability("ECE250", empty, { level: "1A" })).toBe("locked");
+    expect(availability("ECE250", empty, { level: "2A" })).toBe("eligible");
+    expect(availability("ECE150", empty, { level: "1A" })).toBe("eligible");
+    // Still needs prior coursework even at the right level.
+    expect(availability("ECE327", empty, { level: "3A" })).toBe("locked");
   });
 
   it("marks completed courses and cross-listed equivalents as taken", () => {

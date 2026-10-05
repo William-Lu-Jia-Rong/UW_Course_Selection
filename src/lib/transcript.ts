@@ -20,6 +20,11 @@ function statusFor(grade: string | undefined, earned: number | undefined): Cours
   return "other";
 }
 
+/** Empty transcript used when browsing by program + level only (no uploaded courses). */
+export function emptyTranscript(program?: string): Transcript {
+  return { program, terms: [], courses: [], milestones: "" };
+}
+
 /** Parses the text lines of a UW "Undergraduate Unofficial Transcript" (SSR_TSRPT). */
 export function parseTranscriptLines(lines: string[]): Transcript {
   const t: Transcript = { terms: [], courses: [], milestones: "" };
