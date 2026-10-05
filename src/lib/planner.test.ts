@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { extractCodes } from "./codes";
 import { CAREER_BY_ID, CAREERS } from "./careers";
-import { dependentsIndex, downstreamTree, upstreamTree } from "./chain";
+import { dependentsIndex, downstreamTree, retraceRequired, upstreamTree } from "./chain";
 import { applyOfferingIssue, blockedByProgram, buildContext, evaluateCourse } from "./evaluate";
 import { buildChainGraph } from "./graph";
 import { offeringIssue } from "./offerings";
@@ -272,6 +272,35 @@ describe("course chains", () => {
     expect(mine.courses.size).toBeLessThan(full.courses.size);
     expect(mine.hidden.size).toBeGreaterThan(0);
     for (const c of mine.courses) expect(ok(c)).toBe(true);
+  });
+
+  it("retraces a locked course to the topmost unmet required course", () => {
+    const ctx = buildContext(catalog, transcript, { includeInProgress: false, level: "3A", programs: ["H-Computer Engineering"] });
+    const evalOf = (code: string) => {
+      const course = catalog.courses[code];
+      return course ? evaluateCourse(course, ctx) : undefined;
+    };
+    const prefer = (code: string) => code.startsWith("ECE");
+
+    // ECE350 needs ECE252; with in-progress ignored, ECE252 is the actionable start.
+    expect(evalOf("ECE350")?.availability).toBe("locked");
+    expect(retraceRequired(catalog, "ECE350", evalOf, prefer).map((p) => p.chain)).toEqual([["ECE252"]]);
+
+    // ECE454 still needs ECE358 once ECE252 counts; ECE358's own course prereqs are already met via ECE203 in progress… but in-progress is off, so dig to ECE203.
+    expect(evalOf("ECE454")?.availability).toBe("locked");
+    const ece454 = retraceRequired(catalog, "ECE454", evalOf, prefer);
+    expect(ece454[0]?.chain[0]).toBe("ECE203");
+    expect(ece454[0]?.chain).toContain("ECE358");
+
+    // Only non-course blockers (level) → no course to start from.
+    const ctx4a = buildContext(catalog, transcript, { includeInProgress: true, level: "3A", programs: ["H-Computer Engineering"] });
+    const eval4a = (code: string) => {
+      const course = catalog.courses[code];
+      return course ? evaluateCourse(course, ctx4a) : undefined;
+    };
+    // ECE459 at 3A with ECE252 in progress: only level (≥4A) blocks once the course option is met.
+    expect(eval4a("ECE459")?.availability).toBe("locked");
+    expect(retraceRequired(catalog, "ECE459", eval4a, prefer)).toEqual([]);
   });
 });
 

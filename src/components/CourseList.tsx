@@ -6,7 +6,7 @@ import { useLang, useT, type Text } from "../lib/i18n";
 import { CATEGORY_LABEL, type Categorizer, type MembershipReason } from "../lib/requirements";
 import type { Offering } from "../lib/types";
 import { UWFLOW_COURSE_URL } from "../lib/uwflow";
-import { useOpenChain } from "./PrereqChain";
+import { useOpenChain, useRetrace } from "./PrereqChain";
 import { FlowRating } from "./FlowRating";
 import { RequisiteTree } from "./RequisiteTree";
 import { AVAILABILITY, Badge, cx } from "./ui";
@@ -40,10 +40,12 @@ function CourseRow({ ev, cz, offerings, planned, onTogglePlan }: RowProps) {
   const lang = useLang();
   const [open, setOpen] = useState(false);
   const openChain = useOpenChain();
+  const retrace = useRetrace();
   const { course, availability } = ev;
   const meta = AVAILABILITY[availability];
   const cats = cz.categories.get(course.code) ?? [];
   const reqTerm = cz.requiredTerm.get(course.code);
+  const start = availability === "locked" ? retrace(course.code)[0]?.chain[0] : undefined;
   const reasons =
     availability === "restricted" || (availability === "check" && ev.offeringIssue && ev.prereq?.s !== "unk")
       ? [t(`Schedule note: ${ev.offeringIssue?.note}`, `开课备注：${ev.offeringIssue?.note}`)]
@@ -68,6 +70,11 @@ function CourseRow({ ev, cz, offerings, planned, onTogglePlan }: RowProps) {
             <Badge tone={meta.tone} title={t(meta.hint)}>
               {t(meta.label)}
             </Badge>
+            {start && (
+              <Badge tone="amber" title={t("Top of the unmet required prerequisite chain", "未满足必修先修链的最上面一门")}>
+                {t(`Start with ${formatCode(start)}`, `从 ${formatCode(start)} 起`)}
+              </Badge>
+            )}
             {cats.map((c) => {
               const why = cz.reasons.get(`${course.code}:${c}`) ?? "listed";
               return (

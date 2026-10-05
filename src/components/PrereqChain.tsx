@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { downstreamTree, dependentsIndex, requirements, upstreamTree, type DependentsIndex, type DownNode, type Link, type Req } from "../lib/chain";
+import { downstreamTree, dependentsIndex, requirements, retraceRequired, upstreamTree, type DependentsIndex, type DownNode, type Link, type Req, type RetracePath } from "../lib/chain";
 import { formatCode, normalizeCode } from "../lib/codes";
 import { describeNode } from "../lib/describe";
 import { blockedByProgram, equivalents, evaluateCourse, type Availability, type CourseEval, type EvalResult, type StudentContext, type Tri } from "../lib/evaluate";
@@ -12,10 +12,19 @@ import { AVAILABILITY, Badge, Toggle, cx } from "./ui";
 
 type View = "overview" | "graph";
 
-const ChainContext = createContext<(code: string) => void>(() => {});
+interface ChainApi {
+  open: (code: string) => void;
+  /** Retrace a locked course to the top of each unmet required chain. */
+  retrace: (code: string) => RetracePath[];
+}
+
+const ChainContext = createContext<ChainApi>({ open: () => {}, retrace: () => [] });
 
 /** Opens the full prerequisite chain dialog for a course. */
-export const useOpenChain = () => useContext(ChainContext);
+export const useOpenChain = () => useContext(ChainContext).open;
+
+/** Retrace unmet required prerequisites to the foundation course(s). */
+export const useRetrace = () => useContext(ChainContext).retrace;
 
 interface Env {
   catalog: Catalog;
@@ -72,13 +81,22 @@ export function ChainProvider({ catalog, cz, ctx, children }: { catalog: Catalog
     navigate: (code) => setStack((s) => (s[s.length - 1] === code ? s : [...s, code])),
   };
 
-  return (
-    <ChainContext.Provider
-      value={(code) => {
+  const api = useMemo<ChainApi>(
+    () => ({
+      open: (code) => {
         setStack([code]);
         setView("overview");
-      }}
-    >
+      },
+      retrace: (code) => {
+        if (!ctx || evalOf(code)?.availability !== "locked") return [];
+        return retraceRequired(catalog, code, evalOf, (c) => cz.categories.has(c));
+      },
+    }),
+    [catalog, ctx, cz, evalOf],
+  );
+
+  return (
+    <ChainContext.Provider value={api}>
       {children}
       {current && (
         <ChainDialog
@@ -166,14 +184,29 @@ function rank(r: Req, env: Env): number {
 
 /* ---------- upstream: what you need ---------- */
 
-function CourseRow({ req, env, depth, trail, autoOpen }: { req: Extract<Req, { k: "course" }>; env: Env; depth: number; trail: string[]; autoOpen: boolean }) {
+function CourseRow({
+  req,
+  env,
+  depth,
+  trail,
+  autoOpen,
+  openPath,
+}: {
+  req: Extract<Req, { k: "course" }>;
+  env: Env;
+  depth: number;
+  trail: string[];
+  autoOpen: boolean;
+  openPath: Set<string>;
+}) {
   const t = useT();
   const { code } = req;
   const course = env.catalog.courses[code];
   const status = env.statusOf(code);
   const hasReqs = !!(course?.prereq || course?.coreq) && !trail.includes(code);
   const unmet = useMemo(() => (hasReqs && course ? requirements(course, env.evalOf(code)).filter((r) => r.s !== "ok").length : 0), [hasReqs, course, env, code]);
-  const [open, setOpen] = useState(autoOpen && hasReqs);
+  const onPath = openPath.has(code);
+  const [open, setOpen] = useState((autoOpen || onPath) && hasReqs);
   const showStatus = status && !(req.s === "ok" && status === "taken");
 
   let toggleLabel = t("Its prerequisites", "它的先修");
@@ -185,13 +218,19 @@ function CourseRow({ req, env, depth, trail, autoOpen }: { req: Extract<Req, { k
 
   return (
     <li>
-      <div className={cx("group flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1", req.s === "ok" ? "bg-emerald-50/60" : "hover:bg-stone-50")}>
+      <div
+        className={cx(
+          "group flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1",
+          req.s === "ok" ? "bg-emerald-50/60" : onPath ? "bg-amber-50 ring-1 ring-inset ring-amber-200" : "hover:bg-stone-50",
+        )}
+      >
         <Mark s={stateOf(req.s)} />
         <CodeButton code={code} env={env} />
         <span className={cx("min-w-0 flex-1 truncate text-xs", req.s === "ok" ? "text-stone-700" : "text-stone-600")} title={course?.title}>
           {course?.title ?? t("(not in the calendar)", "（日历中没有这门课）")}
         </span>
         <span className="flex shrink-0 items-center gap-1">
+          {onPath && req.s !== "ok" && <Badge tone="amber">{t("On your path", "规划路径上")}</Badge>}
           {req.coreq && <Badge tone="teal">{t("Coreq", "同修")}</Badge>}
           {req.conc && !req.coreq && <Badge tone="teal">{t("Can be concurrent", "可同时修")}</Badge>}
           {req.minGrade !== undefined && <Badge tone="amber">≥ {req.minGrade}%</Badge>}
@@ -215,8 +254,8 @@ function CourseRow({ req, env, depth, trail, autoOpen }: { req: Extract<Req, { k
         </span>
       </div>
       {open && (
-        <div className="mb-2 ml-[13px] mt-1 border-l-2 border-dashed border-stone-200 pl-3">
-          <ReqList code={code} env={env} depth={depth + 1} trail={[...trail, code]} />
+        <div className={cx("mb-2 ml-[13px] mt-1 border-l-2 border-dashed pl-3", onPath ? "border-amber-300" : "border-stone-200")}>
+          <ReqList code={code} env={env} depth={depth + 1} trail={[...trail, code]} openPath={openPath} />
         </div>
       )}
     </li>
@@ -239,7 +278,7 @@ function CondRow({ req }: { req: Extract<Req, { k: "cond" }> }) {
   );
 }
 
-function Options({ group, env, depth, trail }: { group: Extract<Req, { k: "group" }>; env: Env; depth: number; trail: string[] }) {
+function Options({ group, env, depth, trail, openPath }: { group: Extract<Req, { k: "group" }>; env: Env; depth: number; trail: string[]; openPath: Set<string> }) {
   const t = useT();
   const [showRest, setShowRest] = useState(false);
   const sorted = group.n === "all" ? group.kids : [...group.kids].sort((a, b) => rank(a, env) - rank(b, env));
@@ -250,7 +289,15 @@ function Options({ group, env, depth, trail }: { group: Extract<Req, { k: "group
 
   const row = (r: Req, i: number) =>
     r.k === "course" ? (
-      <CourseRow key={`${r.code}-${i}`} req={r} env={env} depth={depth} trail={trail} autoOpen={depth === 0 && !met && r.s !== "ok" && viable <= 2 && env.statusOf(r.code) === "locked"} />
+      <CourseRow
+        key={`${r.code}-${i}`}
+        req={r}
+        env={env}
+        depth={depth}
+        trail={trail}
+        openPath={openPath}
+        autoOpen={depth === 0 && !met && r.s !== "ok" && (openPath.has(r.code) || (viable <= 2 && env.statusOf(r.code) === "locked"))}
+      />
     ) : r.k === "cond" ? (
       <CondRow key={i} req={r} />
     ) : (
@@ -259,7 +306,7 @@ function Options({ group, env, depth, trail }: { group: Extract<Req, { k: "group
           <Mark s={stateOf(r.s)} />
           {groupLabel(r, t)}
         </div>
-        <Options group={r} env={env} depth={depth} trail={trail} />
+        <Options group={r} env={env} depth={depth} trail={trail} openPath={openPath} />
       </li>
     );
 
@@ -294,7 +341,7 @@ const CARD_TONE: Record<State, { box: string; head: string; label?: Text }> = {
   none: { box: "border-stone-200 bg-white", head: "bg-stone-50 text-stone-700" },
 };
 
-function ReqCard({ group, env, depth, trail }: { group: Extract<Req, { k: "group" }>; env: Env; depth: number; trail: string[] }) {
+function ReqCard({ group, env, depth, trail, openPath }: { group: Extract<Req, { k: "group" }>; env: Env; depth: number; trail: string[]; openPath: Set<string> }) {
   const t = useT();
   const state = stateOf(group.s);
   const tone = CARD_TONE[state];
@@ -313,7 +360,7 @@ function ReqCard({ group, env, depth, trail }: { group: Extract<Req, { k: "group
         </span>
       </div>
       <div className={cx("px-1.5", depth ? "py-1" : "py-1.5")}>
-        <Options group={group} env={env} depth={depth} trail={trail} />
+        <Options group={group} env={env} depth={depth} trail={trail} openPath={openPath} />
       </div>
     </div>
   );
@@ -330,7 +377,7 @@ function AndDivider() {
   );
 }
 
-function ReqList({ code, env, depth, trail }: { code: string; env: Env; depth: number; trail: string[] }) {
+function ReqList({ code, env, depth, trail, openPath }: { code: string; env: Env; depth: number; trail: string[]; openPath: Set<string> }) {
   const t = useT();
   const course = env.catalog.courses[code];
   const cards = useMemo(() => {
@@ -348,7 +395,7 @@ function ReqList({ code, env, depth, trail }: { code: string; env: Env; depth: n
       {cards.map((g, i) => (
         <div key={i}>
           {i > 0 && <AndDivider />}
-          <ReqCard group={g} env={env} depth={depth} trail={trail} />
+          <ReqCard group={g} env={env} depth={depth} trail={trail} openPath={openPath} />
         </div>
       ))}
     </div>
@@ -464,7 +511,65 @@ const VERDICT: Record<Availability, { box: string; icon: string }> = {
   antireq: { box: "bg-rose-50 text-rose-900 ring-rose-200", icon: "✕" },
 };
 
-function Hub({ code, env, upCount, downCount, onGraph }: { code: string; env: Env; upCount: number; downCount: number; onGraph: () => void }) {
+function RetraceBanner({ paths, target, env }: { paths: RetracePath[]; target: string; env: Env }) {
+  const t = useT();
+  if (!paths.length) return null;
+  const primary = paths[0];
+  const start = primary.chain[0];
+  const startTitle = env.catalog.courses[start]?.title;
+  const startStatus = env.statusOf(start);
+  const trail = [...primary.chain.map(formatCode), formatCode(target)].join(" → ");
+  const extras = paths.slice(1).map((p) => formatCode(p.chain[0]));
+
+  return (
+    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 p-2.5 text-xs text-amber-950">
+      <div className="font-semibold">{t("Start from the top of the required chain", "从必修链最上面一门开始")}</div>
+      <div className="mt-1 leading-relaxed text-amber-900/90">
+        {t("Take ", "先修 ")}
+        <button type="button" onClick={() => env.navigate(start)} className="font-mono font-semibold text-sky-800 hover:underline">
+          {formatCode(start)}
+        </button>
+        {startTitle ? ` ${startTitle}` : ""}
+        {startStatus && startStatus !== "locked" && (
+          <span className="text-amber-800/80">
+            {t(` (${AVAILABILITY[startStatus].label.en.toLowerCase()})`, `（${AVAILABILITY[startStatus].label.zh}）`)}
+          </span>
+        )}
+        {t(" first, then work forward:", "，再按这条链往下修：")}
+      </div>
+      <div className="mt-1.5 font-mono text-[11px] leading-relaxed text-amber-900/80">{trail}</div>
+      {extras.length > 0 && (
+        <div className="mt-1.5 text-[11px] text-amber-800/80">
+          {t("Also still needed in parallel: ", "另外还要并行补上：")}
+          {extras.map((c, i) => (
+            <span key={c}>
+              {i > 0 && t(", ", "、")}
+              <button type="button" onClick={() => env.navigate(paths[i + 1].chain[0])} className="font-mono font-semibold text-sky-800 hover:underline">
+                {c}
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Hub({
+  code,
+  env,
+  upCount,
+  downCount,
+  paths,
+  onGraph,
+}: {
+  code: string;
+  env: Env;
+  upCount: number;
+  downCount: number;
+  paths: RetracePath[];
+  onGraph: () => void;
+}) {
   const t = useT();
   const course = env.catalog.courses[code];
   const ev = env.evalOf(code);
@@ -478,7 +583,12 @@ function Hub({ code, env, upCount, downCount, onGraph }: { code: string; env: En
   else if (status === "check") text = t("Some conditions can't be checked automatically; please confirm manually.", "有条件无法自动判断，请人工确认。");
   else if (status === "restricted") text = t(AVAILABILITY.restricted.hint);
   else if (status === "locked")
-    text = t(`${plural(unmet, "prerequisite")} still missing; see the highlighted cards on the left.`, `还差 ${unmet} 项先修条件，见左侧标黄的卡片。`);
+    text = paths.length
+      ? t(
+          `${plural(unmet, "prerequisite")} still missing. Retraced to ${formatCode(paths[0].chain[0])} at the top of the required chain.`,
+          `还差 ${unmet} 项先修。已追溯到必修链最上面的 ${formatCode(paths[0].chain[0])}。`,
+        )
+      : t(`${plural(unmet, "prerequisite")} still missing; see the highlighted cards on the left.`, `还差 ${unmet} 项先修条件，见左侧标黄的卡片。`);
   else if (status === "antireq") {
     const hits = antireqHits(ev?.antireq).map(formatCode);
     text = t(
@@ -506,6 +616,8 @@ function Hub({ code, env, upCount, downCount, onGraph }: { code: string; env: En
           <div className="leading-relaxed">{text}</div>
         </div>
       </div>
+
+      {status === "locked" && <RetraceBanner paths={paths} target={code} env={env} />}
 
       <dl className="mt-3 grid grid-cols-2 gap-2 text-center">
         <div className="rounded-lg bg-stone-50 py-1.5">
@@ -609,6 +721,11 @@ function ChainDialog({ stack, env, idx, programOk, view, setView, hideBlocked, s
   const upCount = useMemo(() => upstreamTree(catalog, code).courses.size, [catalog, code]);
   const down = useMemo(() => downstreamTree(catalog, idx, code, hideBlocked ? programOk : undefined), [catalog, idx, code, hideBlocked, programOk]);
   const top = useMemo(() => (course ? requirements(course, env.evalOf(code)) : []), [course, env, code]);
+  const paths = useMemo(() => {
+    if (!env.hasCtx || env.statusOf(code) !== "locked") return [];
+    return retraceRequired(catalog, code, env.evalOf, (c) => env.cz.categories.has(c));
+  }, [catalog, code, env]);
+  const openPath = useMemo(() => new Set(paths.flatMap((p) => p.chain)), [paths]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -626,7 +743,12 @@ function ChainDialog({ stack, env, idx, programOk, view, setView, hideBlocked, s
   const upSubtitle = !top.length
     ? t("This course has no prerequisites or corequisites", "这门课没有先修或同修要求")
     : env.hasCtx
-      ? t(`${top.filter((r) => r.s === "ok").length} / ${top.length} met · every card must be satisfied`, `${top.filter((r) => r.s === "ok").length} / ${top.length} 项已满足 · 每张卡片都要满足`)
+      ? paths[0]
+        ? t(
+            `${top.filter((r) => r.s === "ok").length} / ${top.length} met · start from ${formatCode(paths[0].chain[0])}`,
+            `${top.filter((r) => r.s === "ok").length} / ${top.length} 项已满足 · 从 ${formatCode(paths[0].chain[0])} 开始`,
+          )
+        : t(`${top.filter((r) => r.s === "ok").length} / ${top.length} met · every card must be satisfied`, `${top.filter((r) => r.s === "ok").length} / ${top.length} 项已满足 · 每张卡片都要满足`)
       : t("Every card must be satisfied · upload a transcript to mark what you've met", "每张卡片都要满足 · 上传成绩单后会标出已满足的条件");
 
   return (
@@ -691,13 +813,13 @@ function ChainDialog({ stack, env, idx, programOk, view, setView, hideBlocked, s
         ) : (
           <div className="grid min-h-0 flex-1 gap-5 overflow-auto p-5 md:grid-cols-[minmax(0,1.4fr)_minmax(300px,1fr)] md:grid-rows-[auto_minmax(0,1fr)] md:overflow-hidden xl:grid-cols-[minmax(0,1.35fr)_280px_minmax(0,1fr)] xl:grid-rows-1">
             <div className="md:col-start-2 md:row-start-1">
-              <Hub code={code} env={env} upCount={upCount} downCount={down.courses.size} onGraph={() => setView("graph")} />
+              <Hub code={code} env={env} upCount={upCount} downCount={down.courses.size} paths={paths} onGraph={() => setView("graph")} />
             </div>
 
             <div className="flex min-h-0 flex-col md:col-start-1 md:row-span-2 md:row-start-1 xl:row-span-1">
               <Column step={t("Prerequisites · where it comes from", "先修 · 从哪来")} title={t(`To take ${formatCode(code)}, you need`, `要修 ${formatCode(code)}，需要`)} subtitle={upSubtitle}>
                 {top.length ? (
-                  <ReqList code={code} env={env} depth={0} trail={[code]} />
+                  <ReqList code={code} env={env} depth={0} trail={[code]} openPath={openPath} />
                 ) : (
                   <div className="rounded-xl border border-dashed border-stone-300 bg-white px-4 py-8 text-center text-xs text-stone-400">
                     {t("This is the start of the chain; no other courses are required first", "这是链条的起点，不需要先修其他课")}
